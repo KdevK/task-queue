@@ -4,46 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"task-queue/internal/domain"
 	"testing"
 	"time"
 )
-
-func waitForPending(t *testing.T, broker *InMemoryBroker, taskID string, timeout time.Duration) bool {
-	t.Helper()
-	deadline := time.After(timeout)
-	for {
-		broker.mu.Lock()
-		_, ok := broker.pending[taskID]
-		broker.mu.Unlock()
-
-		if ok {
-			return true
-		}
-
-		select {
-		case <-deadline:
-			return false
-		case <-time.After(time.Millisecond):
-		}
-	}
-}
 
 func TestInMemoryBroker_Publish_Success(t *testing.T) {
 	broker := NewInMemoryBroker(5)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	task := domain.Task{
-		ID:          "testID",
-		Type:        "Task",
-		Payload:     nil,
-		Status:      "Pending",
-		RetryCount:  0,
-		MaxRetries:  5,
-		CreatedAt:   time.Now(),
-		ScheduledAt: time.Now(),
-	}
+	task := makeTask(t, "testID")
 
 	err := broker.Publish(ctx, &task)
 	if err != nil {
@@ -60,29 +30,11 @@ func TestInMemoryBroker_Publish_FullChannel(t *testing.T) {
 	defer cancel()
 
 	for i := 0; i < bufferSize; i++ {
-		localTask := domain.Task{
-			ID:          fmt.Sprintf("TaskID%v", i),
-			Type:        "Task",
-			Payload:     nil,
-			Status:      "Pending",
-			RetryCount:  0,
-			MaxRetries:  5,
-			CreatedAt:   time.Now(),
-			ScheduledAt: time.Now(),
-		}
+		localTask := makeTask(t, fmt.Sprintf("taskID%v", i))
 		broker.tasks <- &localTask
 	}
 
-	task := domain.Task{
-		ID:          "TestID",
-		Type:        "Task",
-		Payload:     nil,
-		Status:      "Pending",
-		RetryCount:  0,
-		MaxRetries:  5,
-		CreatedAt:   time.Now(),
-		ScheduledAt: time.Now(),
-	}
+	task := makeTask(t, "taskID")
 
 	err := broker.Publish(ctx, &task)
 	if !errors.Is(err, ErrQueueFull) {
@@ -92,16 +44,7 @@ func TestInMemoryBroker_Publish_FullChannel(t *testing.T) {
 
 func TestInMemoryBroker_Publish_CancelledCtx(t *testing.T) {
 	broker := NewInMemoryBroker(5)
-	task := domain.Task{
-		ID:          "TaskID",
-		Type:        "Task",
-		Payload:     nil,
-		Status:      "Pending",
-		RetryCount:  0,
-		MaxRetries:  5,
-		CreatedAt:   time.Now(),
-		ScheduledAt: time.Now(),
-	}
+	task := makeTask(t, "taskID")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	// context is cancelled immediately
@@ -119,16 +62,7 @@ func TestInMemoryBroker_Subscribe_Success(t *testing.T) {
 	defer cancel()
 
 	taskID := "taskID"
-	task := domain.Task{
-		ID:          taskID,
-		Type:        "Task",
-		Payload:     nil,
-		Status:      "Pending",
-		RetryCount:  0,
-		MaxRetries:  5,
-		CreatedAt:   time.Now(),
-		ScheduledAt: time.Now(),
-	}
+	task := makeTask(t, "taskID")
 
 	err := broker.Publish(ctx, &task)
 	if err != nil {
@@ -164,17 +98,8 @@ func TestInMemoryBroker_Subscribe_CtxCancelled_WhileBlockedOnSend(t *testing.T) 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	taskID := "TaskID"
-	task := domain.Task{
-		ID:          "TaskID",
-		Type:        "Task",
-		Payload:     nil,
-		Status:      "Pending",
-		RetryCount:  0,
-		MaxRetries:  5,
-		CreatedAt:   time.Now(),
-		ScheduledAt: time.Now(),
-	}
+	taskID := "testID"
+	task := makeTask(t, taskID)
 
 	pubErr := broker.Publish(ctx, &task)
 	if pubErr != nil {

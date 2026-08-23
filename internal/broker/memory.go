@@ -71,8 +71,10 @@ func (b *InMemoryBroker) Ack(ctx context.Context, taskID string) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	if _, ok := b.pending[taskID]; !ok {
 		return ErrTaskNotFound
 	}
