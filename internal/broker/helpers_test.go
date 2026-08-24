@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const maxRetries = 5
+
 func makeTask(t *testing.T, taskID string) domain.Task {
 	t.Helper()
 	return domain.Task{
@@ -14,7 +16,7 @@ func makeTask(t *testing.T, taskID string) domain.Task {
 		Payload:     nil,
 		Status:      "Pending",
 		RetryCount:  0,
-		MaxRetries:  5,
+		MaxRetries:  maxRetries,
 		CreatedAt:   time.Now(),
 		ScheduledAt: time.Now(),
 	}
