@@ -64,7 +64,7 @@ func TestInMemoryBroker_Subscribe_Success(t *testing.T) {
 	defer cancel()
 
 	taskID := "taskID"
-	task := makeTask(t, "taskID")
+	task := makeTask(t, taskID)
 
 	err := broker.Publish(ctx, &task)
 	if err != nil {
@@ -345,7 +345,7 @@ func TestInMemoryBroker_Nack_CtxCancelled(t *testing.T) {
 		t.Fatalf("expected %v, got: %v", context.Canceled, err)
 	}
 	if !failed {
-		t.Fatalf("error was expected to be marked as failed")
+		t.Fatalf("task was expected to be marked as failed")
 	}
 }
 
