@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"task-queue/internal/domain"
 )
 
@@ -10,3 +11,5 @@ type Repository interface {
 	GetByID(ctx context.Context, id string) (*domain.Task, error)
 	UpdateStatus(ctx context.Context, id string, status domain.Status) error
 }
+
+var ErrNotFound = errors.New("storage: task not found")
