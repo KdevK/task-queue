@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"task-queue/internal/domain"
+	"task-queue/internal/storage"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -46,7 +47,7 @@ func (r *Repository) GetByID(ctx context.Context, id string) (*domain.Task, erro
 	`
 	rows, err := r.pool.Query(ctx, query, id)
 	if err != nil {
-		return nil, fmt.Errorf("storage: failed to get task: %w", err)
+		return nil, storage.ErrNotFound
 	}
 	defer rows.Close()
 
