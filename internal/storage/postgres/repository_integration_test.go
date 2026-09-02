@@ -3,16 +3,22 @@
 package postgres_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
+	"task-queue/internal/domain"
+	"task-queue/internal/storage/postgres"
 	"testing"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	postgresmodule "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -75,8 +81,57 @@ func runMigrations(connString string) error {
 	if err != nil {
 		return fmt.Errorf("failed to init migrate: %w", err)
 	}
-	if upErr := m.Up(); upErr != nil && !errors.Is(err, migrate.ErrNoChange) {
+	if upErr := m.Up(); upErr != nil && !errors.Is(upErr, migrate.ErrNoChange) {
 		return fmt.Errorf("failed to apply migrations: %w", upErr)
 	}
 	return nil
+}
+
+func makeTestTask(id string) *domain.Task {
+	return &domain.Task{
+		ID:          id,
+		Type:        "test-task",
+		Payload:     json.RawMessage(`{"key":"value"}`),
+		Status:      domain.StatusPending,
+		RetryCount:  0,
+		MaxRetries:  5,
+		CreatedAt:   time.Now().UTC(),
+		ScheduledAt: time.Now().UTC(),
+	}
+}
+
+func TestRepository_Create_GetByID_RoundTrip(t *testing.T) {
+	repository := postgres.NewPostgresRepository(testPool)
+	taskID := uuid.NewString()
+	task := makeTestTask(taskID)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	crErr := repository.Create(ctx, task)
+	if crErr != nil {
+		t.Fatalf("failed to create task: %w", crErr)
+	}
+
+	getTask, getErr := repository.GetByID(ctx, taskID)
+	if getErr != nil {
+		t.Fatalf("failed to get task: %w", getErr)
+	}
+
+	assertions := map[string]bool{
+		"ID":          task.ID == getTask.ID,
+		"Type":        task.Type == getTask.Type,
+		"Status":      task.Status == getTask.Status,
+		"RetryCount":  task.RetryCount == getTask.RetryCount,
+		"MaxRetries":  task.MaxRetries == getTask.MaxRetries,
+		"Payload":     bytes.Equal(task.Payload, getTask.Payload),
+		"CreatedAt":   task.CreatedAt.Equal(getTask.CreatedAt),
+		"ScheduledAt": task.ScheduledAt.Equal(getTask.ScheduledAt),
+	}
+
+	for key, value := range assertions {
+		if !value {
+			t.Errorf("field %v is not equal", key)
+		}
+	}
 }
