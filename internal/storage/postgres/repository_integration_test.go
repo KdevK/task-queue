@@ -3,14 +3,15 @@
 package postgres_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
+	"reflect"
 	"task-queue/internal/domain"
+	"task-queue/internal/storage"
 	"task-queue/internal/storage/postgres"
 	"testing"
 	"time"
@@ -26,6 +27,8 @@ import (
 )
 
 var testPool *pgxpool.Pool
+
+const testTimeout = 5 * time.Second
 
 func TestMain(m *testing.M) {
 	os.Exit(runTests(m))
@@ -88,6 +91,7 @@ func runMigrations(connString string) error {
 }
 
 func makeTestTask(id string) *domain.Task {
+	now := time.Now().UTC().Round(time.Microsecond)
 	return &domain.Task{
 		ID:          id,
 		Type:        "test-task",
@@ -95,27 +99,38 @@ func makeTestTask(id string) *domain.Task {
 		Status:      domain.StatusPending,
 		RetryCount:  0,
 		MaxRetries:  5,
-		CreatedAt:   time.Now().UTC(),
-		ScheduledAt: time.Now().UTC(),
+		CreatedAt:   now,
+		ScheduledAt: now,
 	}
+}
+
+func jsonEqual(a, b json.RawMessage) bool {
+	var va, vb interface{}
+	if err := json.Unmarshal(a, &va); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(b, &vb); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(va, vb)
 }
 
 func TestRepository_Create_GetByID_RoundTrip(t *testing.T) {
 	repository := postgres.NewPostgresRepository(testPool)
-	taskID := uuid.NewString()
-	task := makeTestTask(taskID)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
+	taskID := uuid.NewString()
+	task := makeTestTask(taskID)
 	crErr := repository.Create(ctx, task)
 	if crErr != nil {
-		t.Fatalf("failed to create task: %w", crErr)
+		t.Fatalf("failed to create task: %v", crErr)
 	}
 
 	getTask, getErr := repository.GetByID(ctx, taskID)
 	if getErr != nil {
-		t.Fatalf("failed to get task: %w", getErr)
+		t.Fatalf("failed to get task: %v", getErr)
 	}
 
 	assertions := map[string]bool{
@@ -124,7 +139,7 @@ func TestRepository_Create_GetByID_RoundTrip(t *testing.T) {
 		"Status":      task.Status == getTask.Status,
 		"RetryCount":  task.RetryCount == getTask.RetryCount,
 		"MaxRetries":  task.MaxRetries == getTask.MaxRetries,
-		"Payload":     bytes.Equal(task.Payload, getTask.Payload),
+		"Payload":     jsonEqual(task.Payload, getTask.Payload),
 		"CreatedAt":   task.CreatedAt.Equal(getTask.CreatedAt),
 		"ScheduledAt": task.ScheduledAt.Equal(getTask.ScheduledAt),
 	}
@@ -133,5 +148,62 @@ func TestRepository_Create_GetByID_RoundTrip(t *testing.T) {
 		if !value {
 			t.Errorf("field %v is not equal", key)
 		}
+	}
+}
+
+func TestRepository_GetByID_NotFound(t *testing.T) {
+	repository := postgres.NewPostgresRepository(testPool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	taskID := uuid.NewString()
+	_, getErr := repository.GetByID(ctx, taskID)
+	if !errors.Is(getErr, storage.ErrNotFound) {
+		t.Fatalf("expected %v, got: %v", storage.ErrNotFound, getErr)
+	}
+}
+
+func TestRepository_UpdateStatus_Success(t *testing.T) {
+	repository := postgres.NewPostgresRepository(testPool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	taskID := uuid.NewString()
+	task := makeTestTask(taskID)
+	task.Status = domain.StatusRunning
+
+	crErr := repository.Create(ctx, task)
+	if crErr != nil {
+		t.Fatalf("failed to create task: %v", crErr)
+	}
+
+	newStatus := domain.StatusDone
+	updErr := repository.UpdateStatus(ctx, taskID, newStatus)
+	if updErr != nil {
+		t.Fatalf("failed to update task: %v", updErr)
+	}
+
+	getTask, getErr := repository.GetByID(ctx, taskID)
+	if getErr != nil {
+		t.Fatalf("failed to get task: %v", getErr)
+	}
+
+	if getTask.Status != newStatus {
+		t.Fatalf("expected status %v, got: %v", newStatus, getTask.Status)
+	}
+}
+
+func TestRepository_UpdateStatus_NotFound(t *testing.T) {
+	repository := postgres.NewPostgresRepository(testPool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	taskID := uuid.NewString()
+	updErr := repository.UpdateStatus(ctx, taskID, domain.StatusDone)
+	if !errors.Is(updErr, storage.ErrNotFound) {
+		t.Fatalf("expected: %v, got: %v", storage.ErrNotFound, updErr)
 	}
 }
