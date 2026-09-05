@@ -12,7 +12,7 @@ type Registry struct {
 }
 
 func NewRegistry() *Registry {
-	return &Registry{make(map[string]Handler)}
+	return &Registry{handlers: make(map[string]Handler)}
 }
 
 func (r *Registry) Register(taskType string, h Handler) {
@@ -25,8 +25,5 @@ func (r *Registry) Register(taskType string, h Handler) {
 
 func (r *Registry) Get(taskType string) (Handler, bool) {
 	h, ok := r.handlers[taskType]
-	if !ok {
-		return nil, false
-	}
-	return h, true
+	return h, ok
 }
