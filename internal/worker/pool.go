@@ -16,19 +16,19 @@ import (
 type Pool struct {
 	broker      broker.Broker
 	repo        storage.Repository
-	registry    Registry
+	registry    *Registry
 	numWorkers  int
 	taskTimeout time.Duration
-	logger      slog.Logger
+	logger      *slog.Logger
 }
 
 func NewPool(
 	b broker.Broker,
 	repo storage.Repository,
-	registry Registry,
+	registry *Registry,
 	numWorkers int,
 	taskTimeout time.Duration,
-	logger slog.Logger,
+	logger *slog.Logger,
 ) *Pool {
 	return &Pool{
 		broker:      b,
@@ -43,7 +43,7 @@ func NewPool(
 func (p *Pool) Run(ctx context.Context) error {
 	out, err := p.broker.Subscribe(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("worker: failed to subscribe: %w", err)
 	}
 
 	g, gCtx := errgroup.WithContext(ctx)
@@ -77,16 +77,13 @@ func (p *Pool) processTask(ctx context.Context, task *domain.Task) {
 
 	handler, found := p.registry.Get(task.Type)
 	if !found {
-		updErr := p.repo.UpdateStatus(taskCtx, task.ID, domain.StatusFailed)
-		if updErr != nil {
-			return
+		p.logger.Error(fmt.Sprintf("no handler registered for type %v", task.Type))
+		if updErr := p.repo.UpdateStatus(taskCtx, task.ID, domain.StatusFailed); updErr != nil {
+			p.logger.Error(fmt.Sprintf("failed to update status: %v", updErr))
 		}
-		ackErr := p.broker.Ack(taskCtx, task.ID)
-		if ackErr != nil {
-			return
+		if ackErr := p.broker.Ack(taskCtx, task.ID); ackErr != nil {
+			p.logger.Error(fmt.Sprintf("failed to ack task: %v", ackErr))
 		}
-		errStr := fmt.Sprintf("failed to Get handler for type %v", task.Type)
-		p.logger.Error(errStr)
 		return
 	}
 
@@ -100,21 +97,16 @@ func (p *Pool) processTask(ctx context.Context, task *domain.Task) {
 			return
 		}
 		if failed {
-			updErr := p.repo.UpdateStatus(taskCtx, task.ID, domain.StatusFailed)
-			if updErr != nil {
-				errStr := fmt.Sprintf("failed to Nack task: %v", nackErr)
-				p.logger.Error(errStr)
+			if updErr := p.repo.UpdateStatus(taskCtx, task.ID, domain.StatusFailed); updErr != nil {
+				p.logger.Error(fmt.Sprintf("failed to update status: %v", updErr))
 			}
-			errStr := fmt.Sprintf("failed to Nack task: %v", nackErr)
-			p.logger.Error(errStr)
 			return
 		}
 		return
 	}
 	updErr := p.repo.UpdateStatus(taskCtx, task.ID, domain.StatusDone)
 	if updErr != nil {
-		errStr := fmt.Sprintf("failed to Ack task: %v", updErr)
-		p.logger.Error(errStr)
+		p.logger.Error(fmt.Sprintf("failed to update status: %v", updErr))
 	}
 	ackErr := p.broker.Ack(taskCtx, task.ID)
 	if ackErr != nil {
