@@ -4,13 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"task-queue/internal/broker"
 	"task-queue/internal/domain"
 	"task-queue/internal/storage"
-
-	"golang.org/x/sync/errgroup"
 )
 
 type Pool struct {
@@ -46,15 +45,17 @@ func (p *Pool) Run(ctx context.Context) error {
 		return fmt.Errorf("worker: failed to subscribe: %w", err)
 	}
 
-	g, gCtx := errgroup.WithContext(ctx)
+	var wg sync.WaitGroup
 	for i := 0; i < p.numWorkers; i++ {
-		g.Go(func() error {
-			p.runWorker(gCtx, out)
-			return nil
-		})
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p.runWorker(ctx, out)
+		}()
 	}
 
-	return g.Wait()
+	wg.Wait()
+	return nil
 }
 
 func (p *Pool) runWorker(ctx context.Context, out <-chan *domain.Task) {
@@ -66,23 +67,23 @@ func (p *Pool) runWorker(ctx context.Context, out <-chan *domain.Task) {
 			if !ok {
 				return
 			}
-			p.processTask(ctx, task)
+			p.processTask(task)
 		}
 	}
 }
 
-func (p *Pool) processTask(ctx context.Context, task *domain.Task) {
+func (p *Pool) processTask(task *domain.Task) {
 	taskCtx, cancel := context.WithTimeout(context.Background(), p.taskTimeout)
 	defer cancel()
 
 	handler, found := p.registry.Get(task.Type)
 	if !found {
-		p.logger.Error(fmt.Sprintf("no handler registered for type %v", task.Type))
+		p.logger.Error("no handler registered for type", "taskType", task.Type)
 		if updErr := p.repo.UpdateStatus(taskCtx, task.ID, domain.StatusFailed); updErr != nil {
-			p.logger.Error(fmt.Sprintf("failed to update status: %v", updErr))
+			p.logger.Error("failed to update status", "error", updErr, "taskID", task.ID)
 		}
 		if ackErr := p.broker.Ack(taskCtx, task.ID); ackErr != nil {
-			p.logger.Error(fmt.Sprintf("failed to ack task: %v", ackErr))
+			p.logger.Error("failed to ack task", "error", ackErr, "taskID", task.ID)
 		}
 		return
 	}
@@ -92,13 +93,12 @@ func (p *Pool) processTask(ctx context.Context, task *domain.Task) {
 	if handlerErr != nil {
 		failed, nackErr := p.broker.Nack(taskCtx, task.ID)
 		if nackErr != nil {
-			errStr := fmt.Sprintf("failed to Nack task: %v", nackErr)
-			p.logger.Error(errStr)
+			p.logger.Error("failed to nack task", "error", nackErr, "taskID", task.ID)
 			return
 		}
 		if failed {
 			if updErr := p.repo.UpdateStatus(taskCtx, task.ID, domain.StatusFailed); updErr != nil {
-				p.logger.Error(fmt.Sprintf("failed to update status: %v", updErr))
+				p.logger.Error("failed to update status", "error", updErr, "taskID", task.ID)
 			}
 			return
 		}
@@ -106,11 +106,10 @@ func (p *Pool) processTask(ctx context.Context, task *domain.Task) {
 	}
 	updErr := p.repo.UpdateStatus(taskCtx, task.ID, domain.StatusDone)
 	if updErr != nil {
-		p.logger.Error(fmt.Sprintf("failed to update status: %v", updErr))
+		p.logger.Error("failed to update status", "error", updErr, "taskID", task.ID)
 	}
 	ackErr := p.broker.Ack(taskCtx, task.ID)
 	if ackErr != nil {
-		errStr := fmt.Sprintf("failed to Ack task: %v", ackErr)
-		p.logger.Error(errStr)
+		p.logger.Error("failed to ack task", "error", ackErr, "taskID", task.ID)
 	}
 }
