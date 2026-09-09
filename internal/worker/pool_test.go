@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"task-queue/internal/broker"
@@ -152,5 +153,91 @@ func TestPool_ProcessTask_Success(t *testing.T) {
 	}
 	if nackCalled {
 		t.Errorf("task was nacknowledged")
+	}
+}
+
+func TestPool_ProcessTask_HandlerErrNackSuccess(t *testing.T) {
+	ackCalled, nackCalled, updCalled := false, false, false
+
+	b := fakeBroker{
+		ackFunc: func(ctx context.Context, taskID string) error {
+			ackCalled = true
+			return nil
+		},
+		nackFunc: func(ctx context.Context, taskID string) (failed bool, err error) {
+			nackCalled = true
+			return false, nil
+		},
+	}
+	repo := fakeRepository{
+		updateFunc: func(ctx context.Context, id string, status domain.Status) error {
+			updCalled = true
+			return nil
+		},
+	}
+	reg := NewRegistry()
+
+	pool := newTestPool(&b, &repo, reg)
+	task := makeTask("testID")
+
+	reg.Register(task.Type, func(ctx context.Context, payload json.RawMessage) error {
+		return fmt.Errorf("handler error")
+	})
+
+	pool.processTask(&task)
+
+	if !nackCalled {
+		t.Errorf("task was not nacknowledged")
+	}
+	if ackCalled {
+		t.Errorf("task was acknowledged")
+	}
+	if updCalled {
+		t.Errorf("task was updated")
+	}
+}
+
+func TestPool_ProcessTask_HandlerErrNackFailed(t *testing.T) {
+	ackCalled, nackCalled, updCalled := false, false, false
+	var newStatus domain.Status
+
+	b := fakeBroker{
+		ackFunc: func(ctx context.Context, taskID string) error {
+			ackCalled = true
+			return nil
+		},
+		nackFunc: func(ctx context.Context, taskID string) (failed bool, err error) {
+			nackCalled = true
+			return true, nil
+		},
+	}
+	repo := fakeRepository{
+		updateFunc: func(ctx context.Context, id string, status domain.Status) error {
+			updCalled = true
+			newStatus = status
+			return nil
+		},
+	}
+	reg := NewRegistry()
+
+	task := makeTask("testID")
+	reg.Register(task.Type, func(ctx context.Context, payload json.RawMessage) error {
+		return fmt.Errorf("handler error")
+	})
+
+	pool := newTestPool(&b, &repo, reg)
+	pool.processTask(&task)
+
+	if !nackCalled {
+		t.Errorf("task was not nacknowledged")
+	}
+	if ackCalled {
+		t.Errorf("task was acknowledged")
+	}
+	if !updCalled {
+		t.Errorf("task was not updated")
+	}
+	if newStatus != domain.StatusFailed {
+		t.Errorf("expected status %v, got %v", domain.StatusFailed, newStatus)
 	}
 }

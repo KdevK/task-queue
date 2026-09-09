@@ -92,16 +92,19 @@ func (p *Pool) processTask(task *domain.Task) {
 
 	if handlerErr != nil {
 		failed, nackErr := p.broker.Nack(taskCtx, task.ID)
+		// handler error, nack error (task not found or full queue)
 		if nackErr != nil {
 			p.logger.Error("failed to nack task", "error", nackErr, "taskID", task.ID)
 			return
 		}
+		// handler error, nack failed (max retries)
 		if failed {
 			if updErr := p.repo.UpdateStatus(taskCtx, task.ID, domain.StatusFailed); updErr != nil {
 				p.logger.Error("failed to update status", "error", updErr, "taskID", task.ID)
 			}
 			return
 		}
+		// handler error, nack success - retry scheduled
 		return
 	}
 	updErr := p.repo.UpdateStatus(taskCtx, task.ID, domain.StatusDone)
