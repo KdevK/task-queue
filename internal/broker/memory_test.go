@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"sync"
 	"task-queue/internal/domain"
 	"testing"
@@ -11,7 +13,7 @@ import (
 )
 
 func TestInMemoryBroker_Publish_Success(t *testing.T) {
-	broker := NewInMemoryBroker(5)
+	broker := NewInMemoryBroker(5, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -27,7 +29,7 @@ func TestInMemoryBroker_Publish_Success(t *testing.T) {
 func TestInMemoryBroker_Publish_FullChannel(t *testing.T) {
 	const bufferSize = 5
 
-	broker := NewInMemoryBroker(bufferSize)
+	broker := NewInMemoryBroker(bufferSize, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -45,7 +47,7 @@ func TestInMemoryBroker_Publish_FullChannel(t *testing.T) {
 }
 
 func TestInMemoryBroker_Publish_CancelledCtx(t *testing.T) {
-	broker := NewInMemoryBroker(5)
+	broker := NewInMemoryBroker(5, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	task := makeTask(t, "taskID")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -59,7 +61,7 @@ func TestInMemoryBroker_Publish_CancelledCtx(t *testing.T) {
 }
 
 func TestInMemoryBroker_Subscribe_Success(t *testing.T) {
-	broker := NewInMemoryBroker(5)
+	broker := NewInMemoryBroker(5, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -96,7 +98,7 @@ func TestInMemoryBroker_Subscribe_Success(t *testing.T) {
 }
 
 func TestInMemoryBroker_Subscribe_CtxCancelled_WhileBlockedOnSend(t *testing.T) {
-	broker := NewInMemoryBroker(5)
+	broker := NewInMemoryBroker(5, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -140,7 +142,7 @@ func TestInMemoryBroker_Subscribe_CtxCancelled_WhileBlockedOnSend(t *testing.T) 
 }
 
 func TestInMemoryBroker_Subscribe_CtxCancelled_WhileIdle(t *testing.T) {
-	broker := NewInMemoryBroker(5)
+	broker := NewInMemoryBroker(5, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -171,7 +173,7 @@ func TestInMemoryBroker_Subscribe_CtxCancelled_WhileIdle(t *testing.T) {
 }
 
 func TestInMemoryBroker_Ack_Success(t *testing.T) {
-	broker := NewInMemoryBroker(5)
+	broker := NewInMemoryBroker(5, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -191,7 +193,7 @@ func TestInMemoryBroker_Ack_Success(t *testing.T) {
 }
 
 func TestInMemoryBroker_Ack_TaskNotFound(t *testing.T) {
-	broker := NewInMemoryBroker(5)
+	broker := NewInMemoryBroker(5, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -203,7 +205,7 @@ func TestInMemoryBroker_Ack_TaskNotFound(t *testing.T) {
 }
 
 func TestInMemoryBroker_Ack_CtxCancelled(t *testing.T) {
-	broker := NewInMemoryBroker(5)
+	broker := NewInMemoryBroker(5, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -220,7 +222,7 @@ func TestInMemoryBroker_Ack_CtxCancelled(t *testing.T) {
 }
 
 func TestInMemoryBroker_Nack_RetrySucceeds(t *testing.T) {
-	broker := NewInMemoryBroker(5)
+	broker := NewInMemoryBroker(5, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -258,7 +260,7 @@ func TestInMemoryBroker_Nack_RetrySucceeds(t *testing.T) {
 
 func TestInMemoryBroker_Nack_RetryFails(t *testing.T) {
 	bufferSize := 3
-	broker := NewInMemoryBroker(bufferSize)
+	broker := NewInMemoryBroker(bufferSize, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -290,7 +292,7 @@ func TestInMemoryBroker_Nack_RetryFails(t *testing.T) {
 }
 
 func TestInMemoryBroker_Nack_RetryCountMaxed(t *testing.T) {
-	broker := NewInMemoryBroker(5)
+	broker := NewInMemoryBroker(5, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -314,7 +316,7 @@ func TestInMemoryBroker_Nack_RetryCountMaxed(t *testing.T) {
 }
 
 func TestInMemoryBroker_Nack_TaskNotFound(t *testing.T) {
-	broker := NewInMemoryBroker(5)
+	broker := NewInMemoryBroker(5, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -330,7 +332,7 @@ func TestInMemoryBroker_Nack_TaskNotFound(t *testing.T) {
 }
 
 func TestInMemoryBroker_Nack_CtxCancelled(t *testing.T) {
-	broker := NewInMemoryBroker(5)
+	broker := NewInMemoryBroker(5, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -350,7 +352,7 @@ func TestInMemoryBroker_Nack_CtxCancelled(t *testing.T) {
 }
 
 func TestInMemoryBroker_Subscribe_ConcurrentScenario(t *testing.T) {
-	broker := NewInMemoryBroker(5)
+	broker := NewInMemoryBroker(5, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

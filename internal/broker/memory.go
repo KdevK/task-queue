@@ -3,7 +3,7 @@ package broker
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"sync"
 	"task-queue/internal/domain"
 )
@@ -15,12 +15,14 @@ type InMemoryBroker struct {
 	tasks   chan *domain.Task
 	pending map[string]*domain.Task
 	mu      sync.Mutex
+	logger  *slog.Logger
 }
 
-func NewInMemoryBroker(bufferSize int) *InMemoryBroker {
+func NewInMemoryBroker(bufferSize int, logger *slog.Logger) *InMemoryBroker {
 	return &InMemoryBroker{
 		tasks:   make(chan *domain.Task, bufferSize),
 		pending: make(map[string]*domain.Task),
+		logger:  logger,
 	}
 }
 
@@ -105,6 +107,6 @@ func (b *InMemoryBroker) Nack(ctx context.Context, taskID string) (failed bool, 
 		}
 	}
 	delete(b.pending, taskID)
-	log.Default().Printf("task %v failed", taskID)
+	b.logger.Warn("task exhausted retries, marking as failed", "taskID", task.ID, "retryCount", task.RetryCount)
 	return true, nil
 }
