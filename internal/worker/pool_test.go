@@ -69,7 +69,7 @@ func newTestPool(b broker.Broker, repo storage.Repository, reg *Registry) *Pool 
 	return NewPool(b, repo, reg, 3, 5*time.Second, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 }
 
-func TestPool_ProcessTask_NoHandler(t *testing.T) {
+func TestPool_ProcessTask_NoHandlerUpdSuccess(t *testing.T) {
 	ackCalled, nackCalled := false, false
 	var newStatus domain.Status
 	var idToUpdate string
@@ -102,10 +102,10 @@ func TestPool_ProcessTask_NoHandler(t *testing.T) {
 		t.Errorf("expected id %v, got %v", task.ID, idToUpdate)
 	}
 	if !ackCalled {
-		t.Errorf("task was not acknowledged")
+		t.Errorf("ack was not called")
 	}
 	if nackCalled {
-		t.Errorf("task was nacknowledged")
+		t.Errorf("nack was called")
 	}
 }
 
@@ -149,10 +149,10 @@ func TestPool_ProcessTask_Success(t *testing.T) {
 		t.Errorf("expected id %v, got %v", task.ID, idToUpdate)
 	}
 	if !ackCalled {
-		t.Errorf("task was not acknowledged")
+		t.Errorf("ack was not called")
 	}
 	if nackCalled {
-		t.Errorf("task was nacknowledged")
+		t.Errorf("nack was called")
 	}
 }
 
@@ -187,10 +187,10 @@ func TestPool_ProcessTask_HandlerErrNackSuccess(t *testing.T) {
 	pool.processTask(&task)
 
 	if !nackCalled {
-		t.Errorf("task was not nacknowledged")
+		t.Errorf("nack was not called")
 	}
 	if ackCalled {
-		t.Errorf("task was acknowledged")
+		t.Errorf("ack was called")
 	}
 	if updCalled {
 		t.Errorf("task was updated")
@@ -229,15 +229,124 @@ func TestPool_ProcessTask_HandlerErrNackFailed(t *testing.T) {
 	pool.processTask(&task)
 
 	if !nackCalled {
-		t.Errorf("task was not nacknowledged")
+		t.Errorf("nack was not called")
 	}
 	if ackCalled {
-		t.Errorf("task was acknowledged")
+		t.Errorf("ack was called")
 	}
 	if !updCalled {
 		t.Errorf("task was not updated")
 	}
 	if newStatus != domain.StatusFailed {
 		t.Errorf("expected status %v, got %v", domain.StatusFailed, newStatus)
+	}
+}
+
+func TestPool_ProcessTask_HandlerErrNackErr(t *testing.T) {
+	ackCalled, nackCalled, updCalled := false, false, false
+
+	b := fakeBroker{
+		ackFunc: func(ctx context.Context, taskID string) error {
+			ackCalled = true
+			return nil
+		},
+		nackFunc: func(ctx context.Context, taskID string) (failed bool, err error) {
+			nackCalled = true
+			return true, fmt.Errorf("nack err")
+		},
+	}
+	repo := fakeRepository{
+		updateFunc: func(ctx context.Context, id string, status domain.Status) error {
+			updCalled = true
+			return nil
+		},
+	}
+	reg := NewRegistry()
+
+	task := makeTask("testID")
+	reg.Register(task.Type, func(ctx context.Context, payload json.RawMessage) error {
+		return fmt.Errorf("handler error")
+	})
+
+	pool := newTestPool(&b, &repo, reg)
+	pool.processTask(&task)
+
+	if !nackCalled {
+		t.Errorf("nack was not called")
+	}
+	if ackCalled {
+		t.Errorf("ack was called")
+	}
+	if updCalled {
+		t.Errorf("task was updated")
+	}
+}
+
+func TestPool_ProcessTask_NoHandlerUpdErr(t *testing.T) {
+	ackCalled, nackCalled := false, false
+
+	b := fakeBroker{
+		ackFunc: func(ctx context.Context, taskID string) error {
+			ackCalled = true
+			return nil
+		},
+		nackFunc: func(ctx context.Context, taskID string) (failed bool, err error) {
+			nackCalled = true
+			return false, nil
+		},
+	}
+	repo := fakeRepository{
+		updateFunc: func(ctx context.Context, id string, status domain.Status) error {
+			return fmt.Errorf("update error")
+		},
+	}
+	reg := NewRegistry()
+
+	task := makeTask("testID")
+	pool := newTestPool(&b, &repo, reg)
+	pool.processTask(&task)
+
+	if !ackCalled {
+		t.Errorf("ack was not called")
+	}
+	if nackCalled {
+		t.Errorf("nack was called")
+	}
+}
+
+func TestPool_ProcessTask_HandlerSuccessUpdErr(t *testing.T) {
+	ackCalled, nackCalled := false, false
+
+	b := fakeBroker{
+		ackFunc: func(ctx context.Context, taskID string) error {
+			ackCalled = true
+			return nil
+		},
+		nackFunc: func(ctx context.Context, taskID string) (failed bool, err error) {
+			nackCalled = true
+			return false, nil
+		},
+	}
+	repo := fakeRepository{
+		updateFunc: func(ctx context.Context, id string, status domain.Status) error {
+			return fmt.Errorf("update error")
+		},
+	}
+	reg := NewRegistry()
+
+	pool := newTestPool(&b, &repo, reg)
+	task := makeTask("testID")
+
+	reg.Register(task.Type, func(ctx context.Context, payload json.RawMessage) error {
+		return nil
+	})
+
+	pool.processTask(&task)
+
+	if !ackCalled {
+		t.Errorf("ack was not called")
+	}
+	if nackCalled {
+		t.Errorf("nack was called")
 	}
 }
