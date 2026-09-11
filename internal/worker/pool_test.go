@@ -18,11 +18,11 @@ type fakeBroker struct {
 	nackFunc func(ctx context.Context, taskID string) (failed bool, err error)
 }
 
-func (b *fakeBroker) Publish(ctx context.Context, task *domain.Task) error {
+func (b *fakeBroker) Publish(_ context.Context, _ *domain.Task) error {
 	return nil
 }
 
-func (b *fakeBroker) Subscribe(ctx context.Context) (<-chan *domain.Task, error) {
+func (b *fakeBroker) Subscribe(_ context.Context) (<-chan *domain.Task, error) {
 	return nil, nil
 }
 
@@ -283,7 +283,7 @@ func TestPool_ProcessTask_HandlerErrNackErr(t *testing.T) {
 }
 
 func TestPool_ProcessTask_NoHandlerUpdErr(t *testing.T) {
-	ackCalled, nackCalled := false, false
+	ackCalled, nackCalled, updCalled := false, false, false
 
 	b := fakeBroker{
 		ackFunc: func(ctx context.Context, taskID string) error {
@@ -297,6 +297,7 @@ func TestPool_ProcessTask_NoHandlerUpdErr(t *testing.T) {
 	}
 	repo := fakeRepository{
 		updateFunc: func(ctx context.Context, id string, status domain.Status) error {
+			updCalled = true
 			return fmt.Errorf("update error")
 		},
 	}
@@ -306,6 +307,9 @@ func TestPool_ProcessTask_NoHandlerUpdErr(t *testing.T) {
 	pool := newTestPool(&b, &repo, reg)
 	pool.processTask(&task)
 
+	if !updCalled {
+		t.Errorf("task was not updated")
+	}
 	if !ackCalled {
 		t.Errorf("ack was not called")
 	}
