@@ -1,0 +1,75 @@
+@startuml Task Lifecycle
+
+title Distributed Task Queue - Task Lifecycle
+
+actor Client
+participant "API (planned)" as API
+participant Broker
+participant "Worker Pool" as Pool
+participant Registry
+participant Handler
+participant Repository
+
+== Task submission (planned, not yet implemented) ==
+
+Client -> API: POST /tasks
+API -> Repository: Create(task, status=pending)
+API -> Broker: Publish(task)
+note right of Broker: Publish is non-blocking (select/default).
+note right of Broker: Returns ErrQueueFull if tasks channel is full, ctx.Err() if context already cancelled.
+API --> Client: 202 { id, status: pending }
+
+== Async processing (implemented) ==
+
+Pool -> Broker: Subscribe(ctx)
+Broker --> Pool: out channel
+
+loop for each task delivered via out
+  Broker -> Broker: write task to pending map (happens-before send to out)
+  Broker -> Pool: task
+
+  Pool -> Registry: Get(task.Type)
+
+  alt handler not registered
+    Pool -> Pool: log error "no handler registered"
+    Pool -> Repository: UpdateStatus(id, failed)
+    Pool -> Broker: Ack(id)
+
+  else handler found
+    Pool -> Handler: handler(taskCtx, payload)
+
+    alt handler succeeds
+      Handler --> Pool: nil
+      Pool -> Repository: UpdateStatus(id, done)
+      Pool -> Broker: Ack(id)
+
+    else handler returns error
+      Handler --> Pool: error
+      Pool -> Broker: Nack(id)
+
+      alt Nack itself fails (ctx cancelled or taskID not found)
+        Broker --> Pool: err != nil
+        Pool -> Pool: log error, return (no Repository call)
+
+      else retries exhausted (failed = true)
+        Broker --> Pool: failed=true, err=nil
+        Broker -> Broker: delete from pending
+        Pool -> Repository: UpdateStatus(id, failed)
+
+      else retry scheduled (failed = false)
+        Broker --> Pool: failed=false, err=nil
+        Broker -> Broker: RetryCount++, requeue into tasks channel
+        note over Pool: No Repository call - status stays as-is until the task is processed again.
+      end
+    end
+  end
+end
+
+== Status lookup (planned, not yet implemented) ==
+
+Client -> API: GET /tasks/{id}
+API -> Repository: GetByID(id)
+Repository --> API: task
+API --> Client: current status
+
+@enduml
