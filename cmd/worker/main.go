@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"task-queue/internal/config"
 	"time"
 
 	"task-queue/internal/broker"
@@ -18,28 +19,23 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const (
-	connString  = "postgres://taskqueue:taskqueue@localhost:5433/taskqueue?sslmode=disable"
-	bufferSize  = 100
-	numWorkers  = 5
-	taskTimeout = 30 * time.Second
-)
-
 func main() {
+	cfg := config.Load()
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, connString)
+	pgxPool, err := pgxpool.New(ctx, cfg.Postgres.ConnString)
 	if err != nil {
 		logger.Error("failed to create pgx pool", "error", err)
 	}
-	defer pool.Close()
+	defer pgxPool.Close()
 
-	repo := postgres.NewPostgresRepository(pool)
+	repo := postgres.NewPostgresRepository(pgxPool)
 
-	b := broker.NewInMemoryBroker(bufferSize, logger)
+	b := broker.NewInMemoryBroker(cfg.Worker.BufferSize, logger)
 
 	reg := worker.NewRegistry()
 	reg.Register("demo", func(ctx context.Context, payload json.RawMessage) error {
@@ -47,7 +43,7 @@ func main() {
 		return nil
 	})
 
-	p := worker.NewPool(b, repo, reg, numWorkers, taskTimeout, logger)
+	p := worker.NewPool(b, repo, reg, cfg.Worker.NumWorkers, cfg.Worker.TaskTimeout, logger)
 
 	// TODO: remove once cmd/api exists
 	demoTask := &domain.Task{
@@ -67,7 +63,7 @@ func main() {
 		logger.Error("failed to publish demo task", "error", pubErr)
 	}
 
-	logger.Info("starting worker pool", "numWorkers", numWorkers)
+	logger.Info("starting worker pool", "numWorkers", cfg.Worker.NumWorkers)
 	if runErr := p.Run(ctx); runErr != nil {
 		logger.Error("worker pool exited with error", "error", runErr)
 		os.Exit(1)
