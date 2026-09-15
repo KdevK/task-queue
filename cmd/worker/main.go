@@ -35,7 +35,7 @@ func main() {
 
 	repo := postgres.NewPostgresRepository(pgxPool)
 
-	b := broker.NewInMemoryBroker(cfg.Worker.BufferSize, logger)
+	b := broker.NewInMemoryBroker(cfg.Broker.BufferSize, logger)
 
 	reg := worker.NewRegistry()
 	reg.Register("demo", func(ctx context.Context, payload json.RawMessage) error {

@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	Postgres PostgresConfig
+	Broker   BrokerConfig
 	Worker   WorkerConfig
 }
 
@@ -16,8 +17,11 @@ type PostgresConfig struct {
 	ConnString string
 }
 
+type BrokerConfig struct {
+	BufferSize int
+}
+
 type WorkerConfig struct {
-	BufferSize  int
 	NumWorkers  int
 	TaskTimeout time.Duration
 }
@@ -34,14 +38,17 @@ func Load() *Config {
 				return s, nil
 			}),
 		},
+		Broker: BrokerConfig{
+			BufferSize: getEnv("BROKER_BUFFER_SIZE", 100, parsePositiveInt),
+		},
 		Worker: WorkerConfig{
-			BufferSize:  getEnv("BROKER_BUFFER_SIZE", 100, strconv.Atoi),
-			NumWorkers:  getEnv("POOL_NUM_WORKERS", 5, strconv.Atoi),
-			TaskTimeout: getEnv("WORKER_TASK_TIMEOUT", 30*time.Second, time.ParseDuration),
+			NumWorkers:  getEnv("POOL_NUM_WORKERS", 5, parsePositiveInt),
+			TaskTimeout: getEnv("WORKER_TASK_TIMEOUT", 30*time.Second, parsePositiveDuration),
 		},
 	}
 }
 
+// panics on invalid value
 func getEnv[T any](key string, fallback T, parse func(string) (T, error)) T {
 	val := os.Getenv(key)
 	if val == "" {
@@ -54,6 +61,7 @@ func getEnv[T any](key string, fallback T, parse func(string) (T, error)) T {
 	return parsed
 }
 
+// panics on invalid value
 func getEnvRequired[T any](key string, parse func(string) (T, error)) T {
 	val := os.Getenv(key)
 	if val == "" {
@@ -61,7 +69,29 @@ func getEnvRequired[T any](key string, parse func(string) (T, error)) T {
 	}
 	parsed, err := parse(val)
 	if err != nil {
-		panic(fmt.Sprintf("config: invalid value for %s: %v", key, val))
+		panic(fmt.Sprintf("config: invalid value for %s: %v", key, err))
 	}
 	return parsed
+}
+
+func parsePositiveInt(s string) (int, error) {
+	val, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, err
+	}
+	if val < 1 {
+		return val, fmt.Errorf("value must be positive")
+	}
+	return val, nil
+}
+
+func parsePositiveDuration(s string) (time.Duration, error) {
+	val, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, err
+	}
+	if val < 1 {
+		return val, fmt.Errorf("time duration must be positive")
+	}
+	return val, nil
 }
