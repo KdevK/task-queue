@@ -34,7 +34,7 @@ func loadDotenv(path string) error {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 
-		// removing hash symbol # used for comments
+		// removes hash symbol # that is used for comments
 		// e.g. KEY=VALUE # comment -> KEY=VALUE
 		// but hash symbol used in values is NOT removed
 		// e.g. PASSWORD=Q1E#E2Q! doesn't change
@@ -51,7 +51,7 @@ func loadDotenv(path string) error {
 			value = strings.TrimSpace(value)
 		}
 
-		// removing double quotes
+		// removes double quotes
 		// e.g. KEY="VALUE" -> KEY=VALUE
 		if len(value) >= 2 &&
 			((strings.HasPrefix(value, `'`) && strings.HasSuffix(value, `'`)) ||
