@@ -8,11 +8,14 @@ import (
 type Status string
 
 const (
-	StatusPending Status = "pending"
-	StatusRunning Status = "running"
-	StatusDone    Status = "done"
-	StatusFailed  Status = "failed"
+	StatusPending     Status = "pending"
+	StatusRunning     Status = "running"
+	StatusDone        Status = "done"
+	StatusFailed      Status = "failed"
+	StatusQueueFailed Status = "queueFailed"
 )
+
+const DefaultMaxRetries = 3
 
 type Task struct {
 	ID          string
