@@ -40,13 +40,13 @@ type CreateTaskResponse struct {
 }
 
 type TaskResponse struct {
-	ID          string    `json:"id"`
-	Type        string    `json:"type"`
-	Status      string    `json:"status"`
-	RetryCount  int       `json:"retry_count"`
-	MaxRetries  int       `json:"max_retries"`
-	CreatedAt   time.Time `json:"created_at"`
-	ScheduledAt time.Time `json:"scheduled_at"`
+	ID          string        `json:"id"`
+	Type        string        `json:"type"`
+	Status      domain.Status `json:"status"`
+	RetryCount  int           `json:"retry_count"`
+	MaxRetries  int           `json:"max_retries"`
+	CreatedAt   time.Time     `json:"created_at"`
+	ScheduledAt time.Time     `json:"scheduled_at"`
 }
 
 type ErrorResponse struct {

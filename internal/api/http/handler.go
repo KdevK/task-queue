@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"task-queue/internal/broker"
@@ -74,15 +75,12 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 
 	pubErr := h.Broker.Publish(ctx, &task)
 	if pubErr != nil {
-		status := domain.StatusQueueFailed
-		updErr := h.Repo.UpdateStatus(ctx, task.ID, domain.StatusQueueFailed)
-		if updErr != nil {
+		if updErr := h.Repo.UpdateStatus(ctx, task.ID, domain.StatusQueueFailed); updErr != nil {
 			h.Logger.Error("failed to update status of task", "error", updErr)
-			status = task.Status
 		}
 		response := CreateTaskResponse{
 			ID:     task.ID,
-			Status: status,
+			Status: domain.StatusQueueFailed,
 		}
 		respondJSON(w, h.Logger, http.StatusAccepted, response)
 		return
@@ -93,4 +91,34 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		Status: task.Status,
 	}
 	respondJSON(w, h.Logger, http.StatusAccepted, response)
+}
+
+func (h *Handler) GetTask(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
+	id := r.PathValue("id")
+
+	task, getErr := h.Repo.GetByID(ctx, id)
+	if getErr != nil {
+		if errors.Is(getErr, storage.ErrNotFound) {
+			respondError(w, h.Logger, http.StatusNotFound, "task not found")
+			return
+		}
+		h.Logger.Error("failed to get task", "error", getErr, "task_id", id)
+		respondError(w, h.Logger, http.StatusInternalServerError, "failed to get task")
+		return
+	}
+
+	response := TaskResponse{
+		ID:          task.ID,
+		Type:        task.Type,
+		Status:      task.Status,
+		RetryCount:  task.RetryCount,
+		MaxRetries:  task.MaxRetries,
+		CreatedAt:   task.CreatedAt,
+		ScheduledAt: task.ScheduledAt,
+	}
+
+	respondJSON(w, h.Logger, http.StatusOK, response)
 }
