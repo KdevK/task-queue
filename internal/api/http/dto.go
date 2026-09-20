@@ -18,8 +18,10 @@ func (r *CreateTaskRequest) Validate() error {
 	if r.Type == "" {
 		return fmt.Errorf("type must not be empty")
 	}
-	if *r.MaxRetries < 1 {
-		return fmt.Errorf("max retries must be at least 1")
+	if r.MaxRetries != nil {
+		if *r.MaxRetries < 1 {
+			return fmt.Errorf("max retries must be at least 1")
+		}
 	}
 	return nil
 }

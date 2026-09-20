@@ -41,8 +41,10 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	var request CreateTaskRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
 
-	decodeErr := json.NewDecoder(r.Body).Decode(&request)
+	decodeErr := decoder.Decode(&request)
 	if decodeErr != nil {
 		respondError(w, h.Logger, http.StatusBadRequest, decodeErr.Error())
 		return
