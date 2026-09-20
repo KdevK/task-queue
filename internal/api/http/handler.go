@@ -6,10 +6,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
+
 	"task-queue/internal/broker"
 	"task-queue/internal/domain"
 	"task-queue/internal/storage"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -50,6 +51,7 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
+	request.ApplyDefaults()
 	valErr := request.Validate()
 	if valErr != nil {
 		respondError(w, h.Logger, http.StatusBadRequest, valErr.Error())

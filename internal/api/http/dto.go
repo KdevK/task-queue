@@ -15,6 +15,16 @@ type CreateTaskRequest struct {
 }
 
 func (r *CreateTaskRequest) Validate() error {
+	if r.Type == "" {
+		return fmt.Errorf("type must not be empty")
+	}
+	if *r.MaxRetries < 1 {
+		return fmt.Errorf("max retries must be at least 1")
+	}
+	return nil
+}
+
+func (r *CreateTaskRequest) ApplyDefaults() {
 	if r.MaxRetries == nil {
 		maxRetries := domain.DefaultMaxRetries
 		r.MaxRetries = &maxRetries
@@ -23,15 +33,6 @@ func (r *CreateTaskRequest) Validate() error {
 		scheduledAt := time.Now().UTC()
 		r.ScheduledAt = &scheduledAt
 	}
-
-	if r.Type == "" {
-		return fmt.Errorf("type must not be empty")
-	}
-	if *r.MaxRetries < 1 {
-		return fmt.Errorf("max retries must be at least 1")
-	}
-
-	return nil
 }
 
 type CreateTaskResponse struct {
