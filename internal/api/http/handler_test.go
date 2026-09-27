@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -207,9 +208,198 @@ func TestHandler_CreateTask_ValidationError(t *testing.T) {
 				t.Fatalf("failed to decode response body %v", err)
 			}
 			if response.Error == "" {
-				t.Fatalf("error field must not be empty")
+				t.Fatalf("error description must not be empty")
 			}
 		})
+	}
+}
+
+func TestHandler_CreateTask_CreateError(t *testing.T) {
+	createCalled, publishCalled := false, false
+
+	repo := fakeRepository{
+		createFunc: func(ctx context.Context, task *domain.Task) error {
+			createCalled = true
+			return fmt.Errorf("failed to create task in repository")
+		},
+	}
+	b := fakeBroker{
+		publishFunc: func(ctx context.Context, task *domain.Task) error {
+			publishCalled = true
+			return nil
+		},
+	}
+
+	handler := Handler{
+		Repo:   &repo,
+		Broker: &b,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	taskPayload := makeTaskRequest()
+	body := structToBody(t, taskPayload)
+
+	rq := httptest.NewRequest(http.MethodPost, "/tasks", body)
+	w := httptest.NewRecorder()
+
+	handler.CreateTask(w, rq)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status %v, got %v", http.StatusInternalServerError, w.Code)
+	}
+	if !createCalled {
+		t.Fatalf("Create must be called")
+	}
+	if publishCalled {
+		t.Fatalf("Publish must not be called")
+	}
+
+	var response ErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+	if response.Error == "" {
+		t.Fatalf("error description must not be empty")
+	}
+}
+
+func TestHandler_CreateTask_PublishErrorUpdateError(t *testing.T) {
+	createCalled, updateCalled, publishCalled := false, false, false
+	var idToCreate, idToUpdate string
+	var statusToUpdate domain.Status
+
+	repo := fakeRepository{
+		createFunc: func(ctx context.Context, task *domain.Task) error {
+			createCalled = true
+			idToCreate = task.ID
+			return nil
+		},
+		updateFunc: func(ctx context.Context, id string, status domain.Status) error {
+			updateCalled = true
+			idToUpdate = id
+			statusToUpdate = status
+			return fmt.Errorf("failed to update task in repository")
+		},
+	}
+	b := fakeBroker{
+		publishFunc: func(ctx context.Context, task *domain.Task) error {
+			publishCalled = true
+			return fmt.Errorf("failed to publish task in broker")
+		},
+	}
+
+	handler := Handler{
+		Repo:   &repo,
+		Broker: &b,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	taskPayload := makeTaskRequest()
+	body := structToBody(t, taskPayload)
+
+	rq := httptest.NewRequest(http.MethodPost, "/tasks", body)
+	w := httptest.NewRecorder()
+
+	handler.CreateTask(w, rq)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected status %v, got %v", http.StatusAccepted, w.Code)
+	}
+	if !createCalled {
+		t.Fatalf("Create must be called")
+	}
+	if !publishCalled {
+		t.Fatalf("Publish must be called")
+	}
+	if !updateCalled {
+		t.Fatalf("Update must be called")
+	}
+	if idToUpdate != idToCreate {
+		t.Fatalf("ID to update %v must match ID to create %v", idToUpdate, idToCreate)
+	}
+	if statusToUpdate != domain.StatusQueueFailed {
+		t.Fatalf("expected status %v, got %v", domain.StatusQueueFailed, statusToUpdate)
+	}
+
+	var response CreateTaskResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+	if response.Status != domain.StatusQueueFailed {
+		t.Fatalf("error description must not be empty")
+	}
+	if response.ID != idToCreate {
+		t.Fatalf("response ID %v does not match created task ID %v", response.ID, idToCreate)
+	}
+}
+
+func TestHandler_CreateTask_PublishErrorUpdateSuccess(t *testing.T) {
+	createCalled, updateCalled, publishCalled := false, false, false
+	var idToCreate, idToUpdate string
+	var statusToUpdate domain.Status
+
+	repo := fakeRepository{
+		createFunc: func(ctx context.Context, task *domain.Task) error {
+			createCalled = true
+			idToCreate = task.ID
+			return nil
+		},
+		updateFunc: func(ctx context.Context, id string, status domain.Status) error {
+			updateCalled = true
+			idToUpdate = id
+			statusToUpdate = status
+			return fmt.Errorf("failed to update task in repository")
+		},
+	}
+	b := fakeBroker{
+		publishFunc: func(ctx context.Context, task *domain.Task) error {
+			publishCalled = true
+			return fmt.Errorf("failed to publish task in broker")
+		},
+	}
+
+	handler := Handler{
+		Repo:   &repo,
+		Broker: &b,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	taskPayload := makeTaskRequest()
+	body := structToBody(t, taskPayload)
+
+	rq := httptest.NewRequest(http.MethodPost, "/tasks", body)
+	w := httptest.NewRecorder()
+
+	handler.CreateTask(w, rq)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected status %v, got %v", http.StatusAccepted, w.Code)
+	}
+	if !createCalled {
+		t.Fatalf("Create must be called")
+	}
+	if !publishCalled {
+		t.Fatalf("Publish must be called")
+	}
+	if !updateCalled {
+		t.Fatalf("Update must be called")
+	}
+	if idToUpdate != idToCreate {
+		t.Fatalf("ID to update %v must match ID to create %v", idToUpdate, idToCreate)
+	}
+	if statusToUpdate != domain.StatusQueueFailed {
+		t.Fatalf("expected status %v, got %v", domain.StatusQueueFailed, statusToUpdate)
+	}
+
+	var response CreateTaskResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+	if response.Status != domain.StatusQueueFailed {
+		t.Fatalf("error description must not be empty")
+	}
+	if response.ID != idToCreate {
+		t.Fatalf("response ID %v does not match created task ID %v", response.ID, idToCreate)
 	}
 }
 
