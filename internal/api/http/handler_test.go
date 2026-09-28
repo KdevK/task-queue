@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"task-queue/internal/domain"
+	"task-queue/internal/storage"
 	"testing"
 	"time"
 )
@@ -136,7 +137,7 @@ func TestHandler_CreateTask_BadRequest(t *testing.T) {
 				t.Fatalf("failed to decode response body %v", err)
 			}
 			if response.Error == "" {
-				t.Fatalf("error field must not be empty")
+				t.Fatalf("error description must not be empty")
 			}
 		})
 	}
@@ -536,5 +537,189 @@ func TestHandler_CreateTask_EmptyOptionalFieldsFilled(t *testing.T) {
 	}
 	if scheduledAtToCreate.IsZero() {
 		t.Fatalf("expected ScheduledAt to be filled with current date")
+	}
+}
+
+func TestHandler_GetTask_EmptyID(t *testing.T) {
+	getCalled := false
+
+	repo := fakeRepository{
+		getFunc: func(ctx context.Context, id string) (*domain.Task, error) {
+			getCalled = true
+			task := domain.Task{
+				ID:          "testId",
+				Type:        "test",
+				Payload:     nil,
+				Status:      domain.StatusDone,
+				RetryCount:  0,
+				MaxRetries:  5,
+				CreatedAt:   time.Now().UTC(),
+				ScheduledAt: time.Now().UTC(),
+			}
+			return &task, nil
+		},
+	}
+	b := fakeBroker{}
+
+	handler := Handler{
+		Repo:   &repo,
+		Broker: &b,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/tasks/", nil)
+	pathValue := ""
+	r.SetPathValue("id", pathValue)
+	w := httptest.NewRecorder()
+
+	handler.GetTask(w, r)
+
+	var response ErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status code %v, got %v", http.StatusBadRequest, w.Code)
+	}
+	if response.Error == "" {
+		t.Fatalf("error description must not be empty")
+	}
+	if getCalled {
+		t.Fatalf("GetTask must not be called")
+	}
+}
+
+func TestHandler_GetTask_TaskNotFound(t *testing.T) {
+	var idToGet string
+	repo := fakeRepository{
+		getFunc: func(ctx context.Context, id string) (*domain.Task, error) {
+			idToGet = id
+			return nil, storage.ErrNotFound
+		},
+	}
+	b := fakeBroker{}
+
+	handler := Handler{
+		Repo:   &repo,
+		Broker: &b,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/tasks/testUuid", nil)
+	pathValue := "testUuid"
+	r.SetPathValue("id", pathValue)
+	w := httptest.NewRecorder()
+
+	handler.GetTask(w, r)
+
+	var response ErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+
+	if pathValue != idToGet {
+		t.Fatalf("id to get must match id from request")
+	}
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected status code %v, got %v", http.StatusNotFound, w.Code)
+	}
+	if response.Error == "" {
+		t.Fatalf("error description must not be empty")
+	}
+}
+
+func TestHandler_GetTask_DatabaseError(t *testing.T) {
+	var idToGet string
+	repo := fakeRepository{
+		getFunc: func(ctx context.Context, id string) (*domain.Task, error) {
+			idToGet = id
+			return nil, fmt.Errorf("failed to get task from db")
+		},
+	}
+	b := fakeBroker{}
+
+	handler := Handler{
+		Repo:   &repo,
+		Broker: &b,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/tasks/testUuid", nil)
+	pathValue := "testUuid"
+	r.SetPathValue("id", pathValue)
+	w := httptest.NewRecorder()
+
+	handler.GetTask(w, r)
+
+	var response ErrorResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+
+	if pathValue != idToGet {
+		t.Fatalf("id to get must match id from request")
+	}
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status code %v, got %v", http.StatusInternalServerError, w.Code)
+	}
+	if response.Error == "" {
+		t.Fatalf("error description must not be empty")
+	}
+}
+
+func TestHandler_GetTask_Success(t *testing.T) {
+	var idToGet string
+	task := domain.Task{
+		ID:          "testId",
+		Type:        "test",
+		Payload:     nil,
+		Status:      domain.StatusDone,
+		RetryCount:  0,
+		MaxRetries:  5,
+		CreatedAt:   time.Now().UTC(),
+		ScheduledAt: time.Now().UTC(),
+	}
+
+	repo := fakeRepository{
+		getFunc: func(ctx context.Context, id string) (*domain.Task, error) {
+			idToGet = id
+			return &task, nil
+		},
+	}
+	b := fakeBroker{}
+
+	handler := Handler{
+		Repo:   &repo,
+		Broker: &b,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "/tasks/testUuid", nil)
+	pathValue := "testUuid"
+	r.SetPathValue("id", pathValue)
+	w := httptest.NewRecorder()
+
+	handler.GetTask(w, r)
+
+	if pathValue != idToGet {
+		t.Fatalf("id to get must match id from request")
+	}
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status code %v, got %v", http.StatusOK, w.Code)
+	}
+
+	var response TaskResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+	if response.ID != task.ID {
+		t.Fatalf("expected ID %v, got %v", task.ID, response.ID)
+	}
+	if response.Status != task.Status {
+		t.Fatalf("expected status %v, got %v", task.Status, response.Status)
+	}
+	if response.MaxRetries != task.MaxRetries {
+		t.Fatalf("expected MaxRetries %v, got %v", task.MaxRetries, response.MaxRetries)
 	}
 }
