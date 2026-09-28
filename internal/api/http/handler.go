@@ -104,6 +104,7 @@ func (h *Handler) GetTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		respondError(w, h.Logger, http.StatusBadRequest, "task id must not be empty")
+		return
 	}
 
 	task, getErr := h.Repo.GetByID(ctx, id)
