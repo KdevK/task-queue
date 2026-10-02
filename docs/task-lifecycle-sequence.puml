@@ -3,21 +3,37 @@
 title Distributed Task Queue - Task Lifecycle
 
 actor Client
-participant "API (planned)" as API
+participant API
 participant Broker
 participant "Worker Pool" as Pool
 participant Registry
 participant Handler
 participant Repository
 
-== Task submission (planned, not yet implemented) ==
+== Task submission (implemented) ==
 
 Client -> API: POST /tasks
-API -> Repository: Create(task, status=pending)
-API -> Broker: Publish(task)
-note right of Broker: Publish is non-blocking (select/default).
-note right of Broker: Returns ErrQueueFull if tasks channel is full, ctx.Err() if context already cancelled.
-API --> Client: 202 { id, status: pending }
+API -> API: decode + validate request
+alt request invalid (malformed JSON, unknown field, or validation error)
+  API --> Client: 400 { error }
+else request valid
+  API -> API: generate task ID (UUID), apply defaults (MaxRetries, ScheduledAt)
+  API -> Repository: Create(task, status=pending)
+  alt Create fails
+    API --> Client: 500 { error }
+  else Create succeeds
+    API -> Broker: Publish(task)
+    note right of Broker: Publish is non-blocking (select/default).
+    note right of Broker: Returns ErrQueueFull if tasks channel is full, ctx.Err() if context already cancelled.
+    alt Publish succeeds
+      API --> Client: 202 { id, status: pending }
+    else Publish fails
+      API -> Repository: UpdateStatus(id, queue_failed)
+      note right of API: Compensating update. Response always reports\nqueue_failed, whether or not this UpdateStatus call\nitself succeeds — Publish failure is the one fact\nobserved directly. If this UpdateStatus also fails,\nthe DB may still show pending; resolved later by Recovery.
+      API --> Client: 202 { id, status: queue_failed }
+    end
+  end
+end
 
 == Async processing (implemented) ==
 
@@ -65,11 +81,23 @@ loop for each task delivered via out
   end
 end
 
-== Status lookup (planned, not yet implemented) ==
+== Status lookup (implemented) ==
 
 Client -> API: GET /tasks/{id}
-API -> Repository: GetByID(id)
-Repository --> API: task
-API --> Client: current status
+alt id is empty
+  API --> Client: 400 { error }
+else id provided
+  API -> Repository: GetByID(id)
+  alt task not found
+    Repository --> API: ErrNotFound
+    API --> Client: 404 { error: "task not found" }
+  else other repository error
+    Repository --> API: err
+    API --> Client: 500 { error: "failed to get task" }
+  else task found
+    Repository --> API: task
+    API --> Client: 200 { task }
+  end
+end
 
 @enduml
