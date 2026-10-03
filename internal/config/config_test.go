@@ -114,15 +114,26 @@ func TestLoad_NegativeTaskTimeoutPanic(t *testing.T) {
 
 func TestLoad_StructFields(t *testing.T) {
 	const (
-		bufferSize  = 50
-		numWorkers  = 7
-		taskTimeout = 30 * time.Second
+		bufferSize        = 50
+		numWorkers        = 7
+		taskTimeout       = 30 * time.Second
+		addr              = ":8000"
+		readHeaderTimeout = 1 * time.Second
+		readTimeout       = 2 * time.Second
+		writeTimeout      = 3 * time.Second
+		idleTimeout       = 4 * time.Second
+		shutdownTimeout   = 6 * time.Second
 	)
 
 	t.Setenv("POSTGRES_CONN_STRING", "postgres://test:test@localhost:5432/taskqueue?sslmode=disable")
 	t.Setenv("BROKER_BUFFER_SIZE", strconv.Itoa(bufferSize))
 	t.Setenv("POOL_NUM_WORKERS", strconv.Itoa(numWorkers))
 	t.Setenv("WORKER_TASK_TIMEOUT", taskTimeout.String())
+	t.Setenv("API_READ_HEADER_TIMEOUT", readHeaderTimeout.String())
+	t.Setenv("API_READ_TIMEOUT", readTimeout.String())
+	t.Setenv("API_WRITE_TIMEOUT", writeTimeout.String())
+	t.Setenv("API_IDLE_TIMEOUT", idleTimeout.String())
+	t.Setenv("API_SHUTDOWN_TIMEOUT", shutdownTimeout.String())
 
 	cfg := Load()
 
@@ -134,5 +145,20 @@ func TestLoad_StructFields(t *testing.T) {
 	}
 	if cfg.Worker.TaskTimeout != taskTimeout {
 		t.Errorf("expected TaskTimeout %v, got %v", taskTimeout, cfg.Worker.TaskTimeout)
+	}
+	if cfg.API.ReadHeaderTimeout != readHeaderTimeout {
+		t.Errorf("expected ReadHeaderTimeout %v, got %v", readHeaderTimeout, cfg.API.ReadHeaderTimeout)
+	}
+	if cfg.API.ReadTimeout != readTimeout {
+		t.Errorf("expected ReadHeaderTimeout %v, got %v", readTimeout, cfg.API.ReadTimeout)
+	}
+	if cfg.API.WriteTimeout != writeTimeout {
+		t.Errorf("expected ReadHeaderTimeout %v, got %v", writeTimeout, cfg.API.WriteTimeout)
+	}
+	if cfg.API.IdleTimeout != idleTimeout {
+		t.Errorf("expected ReadHeaderTimeout %v, got %v", idleTimeout, cfg.API.IdleTimeout)
+	}
+	if cfg.API.ShutdownTimeout != shutdownTimeout {
+		t.Errorf("expected ReadHeaderTimeout %v, got %v", shutdownTimeout, cfg.API.ShutdownTimeout)
 	}
 }

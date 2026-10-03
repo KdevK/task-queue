@@ -11,6 +11,7 @@ type Config struct {
 	Postgres PostgresConfig
 	Broker   BrokerConfig
 	Worker   WorkerConfig
+	API      APIConfig
 }
 
 type PostgresConfig struct {
@@ -24,6 +25,15 @@ type BrokerConfig struct {
 type WorkerConfig struct {
 	NumWorkers  int
 	TaskTimeout time.Duration
+}
+
+type APIConfig struct {
+	Addr              string
+	ReadHeaderTimeout time.Duration
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
+	ShutdownTimeout   time.Duration
 }
 
 func Load() *Config {
@@ -44,6 +54,16 @@ func Load() *Config {
 		Worker: WorkerConfig{
 			NumWorkers:  getEnv("POOL_NUM_WORKERS", 5, parsePositiveInt),
 			TaskTimeout: getEnv("WORKER_TASK_TIMEOUT", 30*time.Second, parsePositiveDuration),
+		},
+		API: APIConfig{
+			Addr: getEnv("API_ADDR", ":8080", func(s string) (string, error) {
+				return s, nil
+			}),
+			ReadHeaderTimeout: getEnv("API_READ_HEADER_TIMEOUT", 5*time.Second, parsePositiveDuration),
+			ReadTimeout:       getEnv("API_READ_TIMEOUT", 10*time.Second, parsePositiveDuration),
+			WriteTimeout:      getEnv("API_WRITE_TIMEOUT", 10*time.Second, parsePositiveDuration),
+			IdleTimeout:       getEnv("API_IDLE_TIMEOUT", 60*time.Second, parsePositiveDuration),
+			ShutdownTimeout:   getEnv("API_SHUTDOWN_TIMEOUT", 15*time.Second, parsePositiveDuration),
 		},
 	}
 }
