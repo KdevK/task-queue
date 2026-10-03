@@ -129,6 +129,7 @@ func TestLoad_StructFields(t *testing.T) {
 	t.Setenv("BROKER_BUFFER_SIZE", strconv.Itoa(bufferSize))
 	t.Setenv("POOL_NUM_WORKERS", strconv.Itoa(numWorkers))
 	t.Setenv("WORKER_TASK_TIMEOUT", taskTimeout.String())
+	t.Setenv("API_ADDR", addr)
 	t.Setenv("API_READ_HEADER_TIMEOUT", readHeaderTimeout.String())
 	t.Setenv("API_READ_TIMEOUT", readTimeout.String())
 	t.Setenv("API_WRITE_TIMEOUT", writeTimeout.String())
@@ -146,19 +147,22 @@ func TestLoad_StructFields(t *testing.T) {
 	if cfg.Worker.TaskTimeout != taskTimeout {
 		t.Errorf("expected TaskTimeout %v, got %v", taskTimeout, cfg.Worker.TaskTimeout)
 	}
+	if cfg.API.Addr != addr {
+		t.Errorf("expected Addr %v, got %v", addr, cfg.API.Addr)
+	}
 	if cfg.API.ReadHeaderTimeout != readHeaderTimeout {
 		t.Errorf("expected ReadHeaderTimeout %v, got %v", readHeaderTimeout, cfg.API.ReadHeaderTimeout)
 	}
 	if cfg.API.ReadTimeout != readTimeout {
-		t.Errorf("expected ReadHeaderTimeout %v, got %v", readTimeout, cfg.API.ReadTimeout)
+		t.Errorf("expected ReadTimeout %v, got %v", readTimeout, cfg.API.ReadTimeout)
 	}
 	if cfg.API.WriteTimeout != writeTimeout {
-		t.Errorf("expected ReadHeaderTimeout %v, got %v", writeTimeout, cfg.API.WriteTimeout)
+		t.Errorf("expected WriteTimeout %v, got %v", writeTimeout, cfg.API.WriteTimeout)
 	}
 	if cfg.API.IdleTimeout != idleTimeout {
-		t.Errorf("expected ReadHeaderTimeout %v, got %v", idleTimeout, cfg.API.IdleTimeout)
+		t.Errorf("expected IdleTimeout %v, got %v", idleTimeout, cfg.API.IdleTimeout)
 	}
 	if cfg.API.ShutdownTimeout != shutdownTimeout {
-		t.Errorf("expected ReadHeaderTimeout %v, got %v", shutdownTimeout, cfg.API.ShutdownTimeout)
+		t.Errorf("expected ShutdownTimeout %v, got %v", shutdownTimeout, cfg.API.ShutdownTimeout)
 	}
 }
