@@ -35,23 +35,23 @@ func run() error {
 	srvCtx, srvCancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer srvCancel()
 
-	poolCtx, poolCancel := context.WithCancel(srvCtx)
-	defer poolCancel()
-
-	dbCtx, dbCancel := context.WithCancel(poolCtx)
+	dbCtx, dbCancel := context.WithCancel(context.Background())
 	defer dbCancel()
 
-	pool, poolErr := pgxpool.New(dbCtx, cfg.Postgres.ConnString)
-	if poolErr != nil {
-		return fmt.Errorf("failed to start pgx pool: %v", poolErr)
+	dbPool, dbPoolErr := pgxpool.New(dbCtx, cfg.Postgres.ConnString)
+	if dbPoolErr != nil {
+		return fmt.Errorf("failed to start pgx pool: %v", dbPoolErr)
 	}
-	defer pool.Close()
+	defer func() {
+		dbPool.Close()
+		logger.Info("database connection closed")
+	}()
 
-	if err := pool.Ping(dbCtx); err != nil {
+	if err := dbPool.Ping(dbCtx); err != nil {
 		return fmt.Errorf("failed to ping DB")
 	}
 
-	repo := postgres.NewPostgresRepository(pool)
+	repo := postgres.NewPostgresRepository(dbPool)
 	b := broker.NewInMemoryBroker(cfg.Broker.BufferSize, logger)
 
 	handler := &server.Handler{
@@ -82,10 +82,15 @@ func run() error {
 		}
 	})
 
+	poolCtx, poolCancel := context.WithCancel(context.Background())
+	defer poolCancel()
+
 	workerPool := worker.NewPool(b, repo, reg, cfg.Worker.NumWorkers, cfg.Worker.TaskTimeout, logger)
-	if err := workerPool.Run(poolCtx); err != nil {
-		return fmt.Errorf("failed to run worker pool")
-	}
+
+	workerPoolDone := make(chan error, 1)
+	go func() {
+		workerPoolDone <- workerPool.Run(poolCtx)
+	}()
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -97,17 +102,18 @@ func run() error {
 		}
 	}()
 
+	// graceful shutdown starts from here
 	var serveErr error
 
+	// stop server
 	select {
 	case <-srvCtx.Done(): // planned stop by the signal
 	case serveErr = <-errCh:
 	}
 
-	srvCancel()
+	srvCancel() // interrupt signals after this step will kill the process immediately
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
-
 	shutdownErr := srv.Shutdown(shutdownCtx)
 	shutdownCancel()
 
@@ -118,6 +124,19 @@ func run() error {
 	}
 
 	// TEMPORARY: stop worker pool
+	poolCancel()
+
+	workerPoolStopTimeout := cfg.Worker.TaskTimeout + time.Second
+	select {
+	case err := <-workerPoolDone:
+		if err != nil {
+			logger.Error("worker pool stop error", "error", err)
+		} else {
+			logger.Info("worker pool stopped")
+		}
+	case <-time.After(workerPoolStopTimeout):
+		logger.Error("worker pool timed out", "timeout", workerPoolStopTimeout)
+	}
 
 	if serveErr != nil {
 		logger.Error("http server failed", "error", serveErr)
