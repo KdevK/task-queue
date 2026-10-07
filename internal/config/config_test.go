@@ -116,7 +116,7 @@ func TestLoad_StructFields(t *testing.T) {
 	const (
 		bufferSize        = 50
 		numWorkers        = 7
-		taskTimeout       = 30 * time.Second
+		taskTimeout       = 45 * time.Second
 		addr              = ":8000"
 		readHeaderTimeout = 1 * time.Second
 		readTimeout       = 2 * time.Second

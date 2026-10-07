@@ -20,10 +20,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const shutdownTimeout = 15 * time.Second
+const dbConnectTimeout = 10 * time.Second
 
 func main() {
 	if err := run(); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
 }
@@ -32,23 +33,24 @@ func run() error {
 	cfg := config.Load()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	srvCtx, srvCancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer srvCancel()
+	srvCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
 
-	dbCtx, dbCancel := context.WithCancel(context.Background())
-	defer dbCancel()
-
-	dbPool, dbPoolErr := pgxpool.New(dbCtx, cfg.Postgres.ConnString)
+	// database initialization
+	dbPool, dbPoolErr := pgxpool.New(context.Background(), cfg.Postgres.ConnString)
 	if dbPoolErr != nil {
-		return fmt.Errorf("failed to start pgx pool: %v", dbPoolErr)
+		return fmt.Errorf("failed to start pgx pool: %w", dbPoolErr)
 	}
 	defer func() {
 		dbPool.Close()
 		logger.Info("database connection closed")
 	}()
 
-	if err := dbPool.Ping(dbCtx); err != nil {
-		return fmt.Errorf("failed to ping DB")
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), dbConnectTimeout)
+	pingErr := dbPool.Ping(pingCtx)
+	pingCancel()
+	if pingErr != nil {
+		return fmt.Errorf("failed to ping database: %w", pingErr)
 	}
 
 	repo := postgres.NewPostgresRepository(dbPool)
@@ -72,24 +74,24 @@ func run() error {
 
 	// TEMPORARY: all-in-one until Kafka
 	reg := worker.NewRegistry()
-	reg.Register("demo", func(poolCtx context.Context, payload json.RawMessage) error {
+	reg.Register("demo", func(ctx context.Context, payload json.RawMessage) error {
 		select {
-		case <-time.After(2 * time.Second):
-			logger.LogAttrs(poolCtx, slog.LevelInfo, "task done", slog.Any("payload", payload))
+		case <-time.After(3 * time.Second):
+			logger.Info("task done", "type", "demo")
 			return nil
-		case <-poolCtx.Done():
-			return poolCtx.Err()
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	})
 
-	poolCtx, poolCancel := context.WithCancel(context.Background())
-	defer poolCancel()
+	workerPoolCtx, workerPoolCancel := context.WithCancel(context.Background())
+	defer workerPoolCancel()
 
 	workerPool := worker.NewPool(b, repo, reg, cfg.Worker.NumWorkers, cfg.Worker.TaskTimeout, logger)
 
 	workerPoolDone := make(chan error, 1)
 	go func() {
-		workerPoolDone <- workerPool.Run(poolCtx)
+		workerPoolDone <- workerPool.Run(workerPoolCtx)
 	}()
 
 	errCh := make(chan error, 1)
@@ -111,9 +113,15 @@ func run() error {
 	case serveErr = <-errCh:
 	}
 
-	srvCancel() // interrupt signals after this step will kill the process immediately
+	if serveErr != nil {
+		logger.Error("http server failed", "error", serveErr)
+	} else {
+		logger.Info("shutdown signal received")
+	}
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	stop() // interrupt signals after this step will kill the process immediately
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.API.ShutdownTimeout)
 	shutdownErr := srv.Shutdown(shutdownCtx)
 	shutdownCancel()
 
@@ -124,7 +132,7 @@ func run() error {
 	}
 
 	// TEMPORARY: stop worker pool
-	poolCancel()
+	workerPoolCancel()
 
 	workerPoolStopTimeout := cfg.Worker.TaskTimeout + time.Second
 	select {
@@ -139,9 +147,7 @@ func run() error {
 	}
 
 	if serveErr != nil {
-		logger.Error("http server failed", "error", serveErr)
 		return fmt.Errorf("http server: %w", serveErr)
 	}
-	logger.Info("shutdown signal received")
 	return nil
 }

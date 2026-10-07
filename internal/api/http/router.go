@@ -53,11 +53,11 @@ func loggingMiddleware(next http.Handler, logger *slog.Logger) http.Handler {
 
 		switch {
 		case status >= 500:
-			logger.Error("request handled", "method", method, "path", path, "status", status, "duration", duration)
+			logger.Error("request handled", "method", method, "path", path, "status", status, "duration", duration.String())
 		case status >= 400:
-			logger.Warn("request handled", "method", method, "path", path, "status", status, "duration", duration)
+			logger.Warn("request handled", "method", method, "path", path, "status", status, "duration", duration.String())
 		default:
-			logger.Info("request handled", "method", method, "path", path, "status", status, "duration", duration)
+			logger.Info("request handled", "method", method, "path", path, "status", status, "duration", duration.String())
 		}
 	})
 }
