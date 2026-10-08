@@ -107,7 +107,7 @@ func run() error {
 	// graceful shutdown starts from here
 	var serveErr error
 
-	// stop server
+	// wait for a shutdown signal or a server failure
 	select {
 	case <-srvCtx.Done(): // planned stop by the signal
 	case serveErr = <-errCh:
@@ -121,6 +121,7 @@ func run() error {
 
 	stop() // interrupt signals after this step will kill the process immediately
 
+	// stop server
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.API.ShutdownTimeout)
 	shutdownErr := srv.Shutdown(shutdownCtx)
 	shutdownCancel()
