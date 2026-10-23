@@ -78,13 +78,9 @@ func TestInMemoryBroker_Subscribe_Success(t *testing.T) {
 		t.Fatalf("subscribe failed: %v", err)
 	}
 
-	receivedTask := <-out
-	if receivedTask == nil {
-		t.Fatalf("received nil from channel")
-	}
-
-	if receivedTask.ID != taskID {
-		t.Fatalf("expected task.ID %v, got: %v", taskID, receivedTask.ID)
+	delivery := <-out
+	if delivery.Task.ID != taskID {
+		t.Fatalf("expected task.ID %v, got: %v", taskID, delivery.Task.ID)
 	}
 
 	pendingTask, ok := broker.pending[taskID]
@@ -181,7 +177,8 @@ func TestInMemoryBroker_Ack_Success(t *testing.T) {
 	task := makeTask(t, taskID)
 	broker.pending[taskID] = &task
 
-	err := broker.Ack(ctx, taskID)
+	delivery := Delivery{Task: &task}
+	err := broker.Ack(ctx, delivery)
 	if err != nil {
 		t.Fatalf("error acknowledging the task: %v", err)
 	}
@@ -198,7 +195,10 @@ func TestInMemoryBroker_Ack_TaskNotFound(t *testing.T) {
 	defer cancel()
 
 	nonExistentTaskID := "testID"
-	err := broker.Ack(ctx, nonExistentTaskID)
+	task := makeTask(t, nonExistentTaskID)
+
+	delivery := Delivery{Task: &task}
+	err := broker.Ack(ctx, delivery)
 	if !errors.Is(err, ErrTaskNotFound) {
 		t.Fatalf("expected %v, got: %v", ErrTaskNotFound, err)
 	}
@@ -215,7 +215,8 @@ func TestInMemoryBroker_Ack_CtxCancelled(t *testing.T) {
 
 	cancel()
 
-	err := broker.Ack(ctx, taskID)
+	delivery := Delivery{Task: &task}
+	err := broker.Ack(ctx, delivery)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected %v, got: %v", context.Canceled, err)
 	}
@@ -230,7 +231,8 @@ func TestInMemoryBroker_Nack_RetrySucceeds(t *testing.T) {
 	task := makeTask(t, taskID)
 	broker.pending[taskID] = &task
 
-	failed, err := broker.Nack(ctx, taskID)
+	delivery := Delivery{Task: &task}
+	failed, err := broker.Nack(ctx, delivery)
 	if err != nil {
 		t.Fatalf("error acknowledging the task: %v", err)
 	}
@@ -273,7 +275,8 @@ func TestInMemoryBroker_Nack_RetryFails(t *testing.T) {
 		broker.tasks <- &localTask
 	}
 
-	failed, err := broker.Nack(ctx, taskID)
+	delivery := Delivery{Task: &task}
+	failed, err := broker.Nack(ctx, delivery)
 	if !errors.Is(err, ErrQueueFull) {
 		t.Fatalf("expected error %v, got: %v", ErrQueueFull, err)
 	}
@@ -301,7 +304,8 @@ func TestInMemoryBroker_Nack_RetryCountMaxed(t *testing.T) {
 	task.RetryCount = maxRetries
 	broker.pending[taskID] = &task
 
-	failed, err := broker.Nack(ctx, taskID)
+	delivery := Delivery{Task: &task}
+	failed, err := broker.Nack(ctx, delivery)
 	if err != nil {
 		t.Fatalf("error acknowledging the task: %v", err)
 	}
@@ -321,7 +325,10 @@ func TestInMemoryBroker_Nack_TaskNotFound(t *testing.T) {
 	defer cancel()
 
 	nonExistentTaskID := "testID"
-	failed, err := broker.Nack(ctx, nonExistentTaskID)
+	task := makeTask(t, nonExistentTaskID)
+
+	delivery := Delivery{Task: &task}
+	failed, err := broker.Nack(ctx, delivery)
 
 	if !errors.Is(err, ErrTaskNotFound) {
 		t.Fatalf("expected error %v, got: %v", ErrTaskNotFound, err)
@@ -342,7 +349,8 @@ func TestInMemoryBroker_Nack_CtxCancelled(t *testing.T) {
 
 	cancel()
 
-	failed, err := broker.Nack(ctx, taskID)
+	delivery := Delivery{Task: &task}
+	failed, err := broker.Nack(ctx, delivery)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected %v, got: %v", context.Canceled, err)
 	}
@@ -394,11 +402,11 @@ func TestInMemoryBroker_Subscribe_ConcurrentScenario(t *testing.T) {
 loop:
 	for len(result) < workerNum {
 		select {
-		case val := <-out:
-			if _, ok := result[val.ID]; ok {
-				t.Fatalf("duplicate taskID: %v", val.ID)
+		case delivery := <-out:
+			if _, ok := result[delivery.Task.ID]; ok {
+				t.Fatalf("duplicate taskID: %v", delivery.Task.ID)
 			}
-			result[val.ID] = val
+			result[delivery.Task.ID] = delivery.Task
 		case <-deadline:
 			break loop
 		}

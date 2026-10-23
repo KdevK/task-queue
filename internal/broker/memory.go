@@ -39,12 +39,12 @@ func (b *InMemoryBroker) Publish(ctx context.Context, task *domain.Task) error {
 	}
 }
 
-func (b *InMemoryBroker) Subscribe(ctx context.Context) (<-chan *domain.Task, error) {
+func (b *InMemoryBroker) Subscribe(ctx context.Context) (<-chan Delivery, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 
-	out := make(chan *domain.Task)
+	out := make(chan Delivery)
 	go func() {
 		for {
 			select {
@@ -54,7 +54,7 @@ func (b *InMemoryBroker) Subscribe(ctx context.Context) (<-chan *domain.Task, er
 				b.mu.Unlock()
 
 				select {
-				case out <- task:
+				case out <- Delivery{Task: task}:
 				case <-ctx.Done():
 					close(out)
 					return
@@ -69,7 +69,7 @@ func (b *InMemoryBroker) Subscribe(ctx context.Context) (<-chan *domain.Task, er
 	return out, nil
 }
 
-func (b *InMemoryBroker) Ack(ctx context.Context, taskID string) error {
+func (b *InMemoryBroker) Ack(ctx context.Context, d Delivery) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -77,21 +77,21 @@ func (b *InMemoryBroker) Ack(ctx context.Context, taskID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.pending[taskID]; !ok {
+	if _, ok := b.pending[d.Task.ID]; !ok {
 		return ErrTaskNotFound
 	}
-	delete(b.pending, taskID)
+	delete(b.pending, d.Task.ID)
 	return nil
 }
 
-func (b *InMemoryBroker) Nack(ctx context.Context, taskID string) (failed bool, err error) {
+func (b *InMemoryBroker) Nack(ctx context.Context, d Delivery) (failed bool, err error) {
 	if ctx.Err() != nil {
 		return true, ctx.Err()
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	task, ok := b.pending[taskID]
+	task, ok := b.pending[d.Task.ID]
 	if !ok {
 		return true, ErrTaskNotFound
 	}
@@ -100,13 +100,13 @@ func (b *InMemoryBroker) Nack(ctx context.Context, taskID string) (failed bool, 
 		select {
 		case b.tasks <- task:
 			task.RetryCount++
-			delete(b.pending, taskID)
+			delete(b.pending, d.Task.ID)
 			return false, nil
 		default:
 			return true, ErrQueueFull
 		}
 	}
-	delete(b.pending, taskID)
+	delete(b.pending, d.Task.ID)
 	b.logger.Warn("task exhausted retries, marking as failed", "taskID", task.ID, "retryCount", task.RetryCount)
 	return true, nil
 }

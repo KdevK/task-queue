@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"task-queue/internal/broker"
 	"task-queue/internal/domain"
 	"task-queue/internal/storage"
 	"testing"
@@ -36,25 +37,25 @@ func (r *fakeRepository) UpdateStatus(ctx context.Context, id string, status dom
 
 type fakeBroker struct {
 	publishFunc   func(ctx context.Context, task *domain.Task) error
-	subscribeFunc func(ctx context.Context) (<-chan *domain.Task, error)
-	ackFunc       func(ctx context.Context, taskID string) error
-	nackFunc      func(ctx context.Context, taskID string) (bool, error)
+	subscribeFunc func(ctx context.Context) (<-chan broker.Delivery, error)
+	ackFunc       func(ctx context.Context, d broker.Delivery) error
+	nackFunc      func(ctx context.Context, d broker.Delivery) (failed bool, err error)
 }
 
 func (b *fakeBroker) Publish(ctx context.Context, task *domain.Task) error {
 	return b.publishFunc(ctx, task)
 }
 
-func (b *fakeBroker) Subscribe(ctx context.Context) (<-chan *domain.Task, error) {
+func (b *fakeBroker) Subscribe(ctx context.Context) (<-chan broker.Delivery, error) {
 	return b.subscribeFunc(ctx)
 }
 
-func (b *fakeBroker) Ack(ctx context.Context, taskID string) error {
-	return b.ackFunc(ctx, taskID)
+func (b *fakeBroker) Ack(ctx context.Context, d broker.Delivery) error {
+	return b.ackFunc(ctx, d)
 }
 
-func (b *fakeBroker) Nack(ctx context.Context, taskID string) (bool, error) {
-	return b.nackFunc(ctx, taskID)
+func (b *fakeBroker) Nack(ctx context.Context, d broker.Delivery) (bool, error) {
+	return b.nackFunc(ctx, d)
 }
 
 func makeTaskRequest() CreateTaskRequest {

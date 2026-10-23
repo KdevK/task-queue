@@ -14,24 +14,24 @@ import (
 )
 
 type fakeBroker struct {
-	ackFunc  func(ctx context.Context, taskID string) error
-	nackFunc func(ctx context.Context, taskID string) (failed bool, err error)
+	ackFunc  func(ctx context.Context, d broker.Delivery) error
+	nackFunc func(ctx context.Context, d broker.Delivery) (failed bool, err error)
 }
 
 func (b *fakeBroker) Publish(_ context.Context, _ *domain.Task) error {
 	return nil
 }
 
-func (b *fakeBroker) Subscribe(_ context.Context) (<-chan *domain.Task, error) {
+func (b *fakeBroker) Subscribe(_ context.Context) (<-chan broker.Delivery, error) {
 	return nil, nil
 }
 
-func (b *fakeBroker) Ack(ctx context.Context, taskID string) error {
-	return b.ackFunc(ctx, taskID)
+func (b *fakeBroker) Ack(ctx context.Context, d broker.Delivery) error {
+	return b.ackFunc(ctx, d)
 }
 
-func (b *fakeBroker) Nack(ctx context.Context, taskID string) (bool, error) {
-	return b.nackFunc(ctx, taskID)
+func (b *fakeBroker) Nack(ctx context.Context, d broker.Delivery) (bool, error) {
+	return b.nackFunc(ctx, d)
 }
 
 type fakeRepository struct {
@@ -75,11 +75,11 @@ func TestPool_ProcessTask_NoHandlerUpdSuccess(t *testing.T) {
 	var idToUpdate string
 
 	b := fakeBroker{
-		ackFunc: func(ctx context.Context, taskID string) error {
+		ackFunc: func(ctx context.Context, d broker.Delivery) error {
 			ackCalled = true
 			return nil
 		},
-		nackFunc: func(ctx context.Context, taskID string) (failed bool, err error) {
+		nackFunc: func(ctx context.Context, d broker.Delivery) (failed bool, err error) {
 			nackCalled = true
 			return false, nil
 		},
@@ -93,7 +93,8 @@ func TestPool_ProcessTask_NoHandlerUpdSuccess(t *testing.T) {
 
 	pool := newTestPool(&b, &repo, NewRegistry())
 	task := makeTask("testID")
-	pool.processTask(&task)
+	delivery := broker.Delivery{Task: &task}
+	pool.processTask(delivery)
 
 	if newStatus != domain.StatusFailed {
 		t.Errorf("expected status %v, got %v", domain.StatusFailed, newStatus)
@@ -115,11 +116,11 @@ func TestPool_ProcessTask_Success(t *testing.T) {
 	var idToUpdate string
 
 	b := fakeBroker{
-		ackFunc: func(ctx context.Context, taskID string) error {
+		ackFunc: func(ctx context.Context, d broker.Delivery) error {
 			ackCalled = true
 			return nil
 		},
-		nackFunc: func(ctx context.Context, taskID string) (failed bool, err error) {
+		nackFunc: func(ctx context.Context, d broker.Delivery) (failed bool, err error) {
 			nackCalled = true
 			return false, nil
 		},
@@ -140,7 +141,8 @@ func TestPool_ProcessTask_Success(t *testing.T) {
 		return nil
 	})
 
-	pool.processTask(&task)
+	delivery := broker.Delivery{Task: &task}
+	pool.processTask(delivery)
 
 	if newStatus != domain.StatusDone {
 		t.Errorf("expected status %v, got %v", domain.StatusDone, newStatus)
@@ -160,11 +162,11 @@ func TestPool_ProcessTask_HandlerErrNackSuccess(t *testing.T) {
 	ackCalled, nackCalled, updCalled := false, false, false
 
 	b := fakeBroker{
-		ackFunc: func(ctx context.Context, taskID string) error {
+		ackFunc: func(ctx context.Context, d broker.Delivery) error {
 			ackCalled = true
 			return nil
 		},
-		nackFunc: func(ctx context.Context, taskID string) (failed bool, err error) {
+		nackFunc: func(ctx context.Context, d broker.Delivery) (failed bool, err error) {
 			nackCalled = true
 			return false, nil
 		},
@@ -184,7 +186,8 @@ func TestPool_ProcessTask_HandlerErrNackSuccess(t *testing.T) {
 		return fmt.Errorf("handler error")
 	})
 
-	pool.processTask(&task)
+	delivery := broker.Delivery{Task: &task}
+	pool.processTask(delivery)
 
 	if !nackCalled {
 		t.Errorf("nack was not called")
@@ -202,11 +205,11 @@ func TestPool_ProcessTask_HandlerErrNackFailed(t *testing.T) {
 	var newStatus domain.Status
 
 	b := fakeBroker{
-		ackFunc: func(ctx context.Context, taskID string) error {
+		ackFunc: func(ctx context.Context, d broker.Delivery) error {
 			ackCalled = true
 			return nil
 		},
-		nackFunc: func(ctx context.Context, taskID string) (failed bool, err error) {
+		nackFunc: func(ctx context.Context, d broker.Delivery) (failed bool, err error) {
 			nackCalled = true
 			return true, nil
 		},
@@ -226,7 +229,9 @@ func TestPool_ProcessTask_HandlerErrNackFailed(t *testing.T) {
 	})
 
 	pool := newTestPool(&b, &repo, reg)
-	pool.processTask(&task)
+
+	delivery := broker.Delivery{Task: &task}
+	pool.processTask(delivery)
 
 	if !nackCalled {
 		t.Errorf("nack was not called")
@@ -246,11 +251,11 @@ func TestPool_ProcessTask_HandlerErrNackErr(t *testing.T) {
 	ackCalled, nackCalled, updCalled := false, false, false
 
 	b := fakeBroker{
-		ackFunc: func(ctx context.Context, taskID string) error {
+		ackFunc: func(ctx context.Context, d broker.Delivery) error {
 			ackCalled = true
 			return nil
 		},
-		nackFunc: func(ctx context.Context, taskID string) (failed bool, err error) {
+		nackFunc: func(ctx context.Context, d broker.Delivery) (failed bool, err error) {
 			nackCalled = true
 			return true, fmt.Errorf("nack err")
 		},
@@ -269,7 +274,9 @@ func TestPool_ProcessTask_HandlerErrNackErr(t *testing.T) {
 	})
 
 	pool := newTestPool(&b, &repo, reg)
-	pool.processTask(&task)
+
+	delivery := broker.Delivery{Task: &task}
+	pool.processTask(delivery)
 
 	if !nackCalled {
 		t.Errorf("nack was not called")
@@ -286,11 +293,11 @@ func TestPool_ProcessTask_NoHandlerUpdErr(t *testing.T) {
 	ackCalled, nackCalled, updCalled := false, false, false
 
 	b := fakeBroker{
-		ackFunc: func(ctx context.Context, taskID string) error {
+		ackFunc: func(ctx context.Context, d broker.Delivery) error {
 			ackCalled = true
 			return nil
 		},
-		nackFunc: func(ctx context.Context, taskID string) (failed bool, err error) {
+		nackFunc: func(ctx context.Context, d broker.Delivery) (failed bool, err error) {
 			nackCalled = true
 			return false, nil
 		},
@@ -305,7 +312,9 @@ func TestPool_ProcessTask_NoHandlerUpdErr(t *testing.T) {
 
 	task := makeTask("testID")
 	pool := newTestPool(&b, &repo, reg)
-	pool.processTask(&task)
+
+	delivery := broker.Delivery{Task: &task}
+	pool.processTask(delivery)
 
 	if !updCalled {
 		t.Errorf("task was not updated")
@@ -322,11 +331,11 @@ func TestPool_ProcessTask_HandlerSuccessUpdErr(t *testing.T) {
 	ackCalled, nackCalled := false, false
 
 	b := fakeBroker{
-		ackFunc: func(ctx context.Context, taskID string) error {
+		ackFunc: func(ctx context.Context, d broker.Delivery) error {
 			ackCalled = true
 			return nil
 		},
-		nackFunc: func(ctx context.Context, taskID string) (failed bool, err error) {
+		nackFunc: func(ctx context.Context, d broker.Delivery) (failed bool, err error) {
 			nackCalled = true
 			return false, nil
 		},
@@ -345,7 +354,8 @@ func TestPool_ProcessTask_HandlerSuccessUpdErr(t *testing.T) {
 		return nil
 	})
 
-	pool.processTask(&task)
+	delivery := broker.Delivery{Task: &task}
+	pool.processTask(delivery)
 
 	if !ackCalled {
 		t.Errorf("ack was not called")

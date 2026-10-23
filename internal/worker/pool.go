@@ -58,61 +58,61 @@ func (p *Pool) Run(ctx context.Context) error {
 	return nil
 }
 
-func (p *Pool) runWorker(ctx context.Context, out <-chan *domain.Task) {
+func (p *Pool) runWorker(ctx context.Context, out <-chan broker.Delivery) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case task, ok := <-out:
+		case d, ok := <-out:
 			if !ok {
 				return
 			}
-			p.processTask(task)
+			p.processTask(d)
 		}
 	}
 }
 
-func (p *Pool) processTask(task *domain.Task) {
+func (p *Pool) processTask(d broker.Delivery) {
 	taskCtx, cancel := context.WithTimeout(context.Background(), p.taskTimeout)
 	defer cancel()
 
-	handler, found := p.registry.Get(task.Type)
+	handler, found := p.registry.Get(d.Task.Type)
 	if !found {
-		p.logger.Error("no handler registered for type", "taskType", task.Type)
-		if updErr := p.repo.UpdateStatus(taskCtx, task.ID, domain.StatusFailed); updErr != nil {
-			p.logger.Error("failed to update status", "error", updErr, "taskID", task.ID)
+		p.logger.Error("no handler registered for type", "taskType", d.Task.Type)
+		if updErr := p.repo.UpdateStatus(taskCtx, d.Task.ID, domain.StatusFailed); updErr != nil {
+			p.logger.Error("failed to update status", "error", updErr, "taskID", d.Task.ID)
 		}
-		if ackErr := p.broker.Ack(taskCtx, task.ID); ackErr != nil {
-			p.logger.Error("failed to ack task", "error", ackErr, "taskID", task.ID)
+		if ackErr := p.broker.Ack(taskCtx, d); ackErr != nil {
+			p.logger.Error("failed to ack task", "error", ackErr, "taskID", d.Task.ID)
 		}
 		return
 	}
 
-	handlerErr := handler(taskCtx, task.Payload)
+	handlerErr := handler(taskCtx, d.Task.Payload)
 
 	if handlerErr != nil {
-		failed, nackErr := p.broker.Nack(taskCtx, task.ID)
+		failed, nackErr := p.broker.Nack(taskCtx, d)
 		// handler error, nack error (task not found or full queue)
 		if nackErr != nil {
-			p.logger.Error("failed to nack task", "error", nackErr, "taskID", task.ID)
+			p.logger.Error("failed to nack task", "error", nackErr, "taskID", d.Task.ID)
 			return
 		}
 		// handler error, nack failed (max retries)
 		if failed {
-			if updErr := p.repo.UpdateStatus(taskCtx, task.ID, domain.StatusFailed); updErr != nil {
-				p.logger.Error("failed to update status", "error", updErr, "taskID", task.ID)
+			if updErr := p.repo.UpdateStatus(taskCtx, d.Task.ID, domain.StatusFailed); updErr != nil {
+				p.logger.Error("failed to update status", "error", updErr, "taskID", d.Task.ID)
 			}
 			return
 		}
 		// handler error, nack success - retry scheduled
 		return
 	}
-	updErr := p.repo.UpdateStatus(taskCtx, task.ID, domain.StatusDone)
+	updErr := p.repo.UpdateStatus(taskCtx, d.Task.ID, domain.StatusDone)
 	if updErr != nil {
-		p.logger.Error("failed to update status", "error", updErr, "taskID", task.ID)
+		p.logger.Error("failed to update status", "error", updErr, "taskID", d.Task.ID)
 	}
-	ackErr := p.broker.Ack(taskCtx, task.ID)
+	ackErr := p.broker.Ack(taskCtx, d)
 	if ackErr != nil {
-		p.logger.Error("failed to ack task", "error", ackErr, "taskID", task.ID)
+		p.logger.Error("failed to ack task", "error", ackErr, "taskID", d.Task.ID)
 	}
 }
