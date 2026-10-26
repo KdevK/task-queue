@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -123,6 +124,8 @@ func TestLoad_StructFields(t *testing.T) {
 		writeTimeout      = 3 * time.Second
 		idleTimeout       = 4 * time.Second
 		shutdownTimeout   = 6 * time.Second
+		kafkaBrokers      = "localhost:29090"
+		kafkaTopics       = "tasksTest"
 	)
 
 	t.Setenv("POSTGRES_CONN_STRING", "postgres://test:test@localhost:5432/taskqueue?sslmode=disable")
@@ -135,6 +138,8 @@ func TestLoad_StructFields(t *testing.T) {
 	t.Setenv("API_WRITE_TIMEOUT", writeTimeout.String())
 	t.Setenv("API_IDLE_TIMEOUT", idleTimeout.String())
 	t.Setenv("API_SHUTDOWN_TIMEOUT", shutdownTimeout.String())
+	t.Setenv("KAFKA_BROKERS", kafkaBrokers)
+	t.Setenv("KAFKA_TOPIC", kafkaTopics)
 
 	cfg := Load()
 
@@ -164,5 +169,11 @@ func TestLoad_StructFields(t *testing.T) {
 	}
 	if cfg.API.ShutdownTimeout != shutdownTimeout {
 		t.Errorf("expected ShutdownTimeout %v, got %v", shutdownTimeout, cfg.API.ShutdownTimeout)
+	}
+	if !slices.Equal(cfg.Kafka.KafkaBrokers, []string{kafkaBrokers}) {
+		t.Errorf("expected KafkaBrokers %v, got %v", []string{kafkaBrokers}, cfg.Kafka.KafkaBrokers)
+	}
+	if cfg.Kafka.KafkaTopic != kafkaTopics {
+		t.Errorf("expected KafkaTopics %v, got %v", kafkaTopics, cfg.Kafka.KafkaTopic)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -12,6 +13,7 @@ type Config struct {
 	Broker   BrokerConfig
 	Worker   WorkerConfig
 	API      APIConfig
+	Kafka    KafkaConfig
 }
 
 type PostgresConfig struct {
@@ -36,6 +38,11 @@ type APIConfig struct {
 	ShutdownTimeout   time.Duration
 }
 
+type KafkaConfig struct {
+	KafkaBrokers []string
+	KafkaTopic   string
+}
+
 func Load() *Config {
 	err := loadDotenv(".env")
 	if err != nil {
@@ -44,9 +51,7 @@ func Load() *Config {
 
 	return &Config{
 		Postgres: PostgresConfig{
-			ConnString: getEnvRequired("POSTGRES_CONN_STRING", func(s string) (string, error) {
-				return s, nil
-			}),
+			ConnString: getEnvRequired("POSTGRES_CONN_STRING", parseSimpleString),
 		},
 		Broker: BrokerConfig{
 			BufferSize: getEnv("BROKER_BUFFER_SIZE", 100, parsePositiveInt),
@@ -56,14 +61,16 @@ func Load() *Config {
 			TaskTimeout: getEnv("WORKER_TASK_TIMEOUT", 30*time.Second, parsePositiveDuration),
 		},
 		API: APIConfig{
-			Addr: getEnv("API_ADDR", ":8080", func(s string) (string, error) {
-				return s, nil
-			}),
+			Addr:              getEnv("API_ADDR", ":8080", parseSimpleString),
 			ReadHeaderTimeout: getEnv("API_READ_HEADER_TIMEOUT", 5*time.Second, parsePositiveDuration),
 			ReadTimeout:       getEnv("API_READ_TIMEOUT", 10*time.Second, parsePositiveDuration),
 			WriteTimeout:      getEnv("API_WRITE_TIMEOUT", 10*time.Second, parsePositiveDuration),
 			IdleTimeout:       getEnv("API_IDLE_TIMEOUT", 60*time.Second, parsePositiveDuration),
 			ShutdownTimeout:   getEnv("API_SHUTDOWN_TIMEOUT", 15*time.Second, parsePositiveDuration),
+		},
+		Kafka: KafkaConfig{
+			KafkaBrokers: getEnv("KAFKA_BROKERS", []string{"localhost:29092"}, parseStringList),
+			KafkaTopic:   getEnv("KAFKA_TOPIC", "tasks", parseSimpleString),
 		},
 	}
 }
@@ -94,6 +101,10 @@ func getEnvRequired[T any](key string, parse func(string) (T, error)) T {
 	return parsed
 }
 
+func parseSimpleString(s string) (string, error) {
+	return s, nil
+}
+
 func parsePositiveInt(s string) (int, error) {
 	val, err := strconv.Atoi(s)
 	if err != nil {
@@ -114,4 +125,21 @@ func parsePositiveDuration(s string) (time.Duration, error) {
 		return val, fmt.Errorf("time duration must be positive")
 	}
 	return val, nil
+}
+
+func parseStringList(s string) ([]string, error) {
+	vals := strings.Split(s, ",")
+	var result []string
+
+	for _, val := range vals {
+		cleaned := strings.TrimSpace(val)
+		if cleaned != "" {
+			result = append(result, cleaned)
+		}
+	}
+
+	if len(result) == 0 {
+		return nil, fmt.Errorf("string must contain multiple values divided by comma")
+	}
+	return result, nil
 }
